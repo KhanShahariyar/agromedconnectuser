@@ -1,6 +1,6 @@
 # AgroMEDConnect
 
-Agricultural marketplace for Bangladesh. React + Vite + TypeScript.
+Connecting Bangladesh’s farmers with trusted agricultural and healthcare essentials. React + Vite + TypeScript.
 
 ## Run locally
 
@@ -27,4 +27,3 @@ Use the বাংলা / EN toggle in the top bar.
 npm run build
 npm run preview
 ```
-# agromedconnectuser
