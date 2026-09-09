@@ -69,7 +69,8 @@ export function toProduct(listing: ListingSummary): ProductView {
     rating: listing.ratingAverage ?? 0,
     reviews: listing.ratingCount,
     stockSignal: listing.stockSignal,
-    image: mediaUrl(listing.primaryImageUrl),
+    // A summary is only ever rendered in a grid, so it only ever needs the preview.
+    image: mediaUrl(listing.primaryImageUrl, true),
     kind: listing.kind,
     sku: listing.sku,
   }
@@ -167,7 +168,7 @@ export function toServices(services: ServiceSummary[]): ServiceView[] {
     index: String(i + 1).padStart(2, '0'),
     leadTimeDays: s.leadTimeDays ?? undefined,
     requiresSiteVisit: s.requiresSiteVisit,
-    image: mediaUrl(s.imageUrl),
+    image: mediaUrl(s.imageUrl, true),
   }))
 }
 
@@ -246,7 +247,7 @@ export function toOrders(orders: OrderSummary[]): OrderView[] {
     lineCount: o.lineCount,
     placedAt: o.placedAt,
     itemName: o.primaryItemName ?? '',
-    image: mediaUrl(o.primaryImageUrl),
+    image: mediaUrl(o.primaryImageUrl, true),
   }))
 }
 

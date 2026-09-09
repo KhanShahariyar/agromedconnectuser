@@ -166,10 +166,22 @@ export async function request<T>(path: string, options: RequestOptions = {}): Pr
  * know what host a client reached it on. It does mean every image path needs this on the way out,
  * and it means an already-absolute URL must pass through untouched.
  */
-export function mediaUrl(path: string | null | undefined): string | undefined {
+export function mediaUrl(
+  path: string | null | undefined,
+  /**
+   * Ask the API for a downscaled preview.
+   *
+   * Worth being deliberate about: a shop grid renders cards a couple of hundred pixels wide, and
+   * the photographs behind them are whatever came off a phone. Sending the full image to fill a
+   * 240px box wastes most of what it downloads, and this site's users are on mobile data in rural
+   * Bangladesh — the difference is the page loading or not. The full image is for the product page,
+   * where it is actually looked at.
+   */
+  thumbnail = false,
+): string | undefined {
   if (!path) return undefined
   if (path.startsWith('http://') || path.startsWith('https://')) return path
-  return API_BASE + path
+  return API_BASE + path + (thumbnail ? '?thumb=true' : '')
 }
 
 /** Signs in and adopts the returned session. */
