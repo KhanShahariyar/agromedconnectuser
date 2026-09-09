@@ -3,7 +3,31 @@ export type Page =
   | 'knowledge' | 'article' | 'support' | 'track' | 'account'
   | 'wishlist' | 'checkout' | 'notifications' | 'help'
 
-export type Product = {
+
+// ============================================================================
+// RETIRED MOCK DATA
+// ============================================================================
+// Everything below this line was the site's data source before it was wired to
+// the live API. It is kept, not deleted, because some of it encodes product
+// decisions that have no API equivalent yet and would be lost with the file:
+// the six-category home grid, the market ticker's commodity list, the notification
+// copy. Nothing here is imported by the app any more.
+//
+// TODO: REVIEW - possibly unused, confirm before removing.
+//
+// Where each one went:
+//   categories    -> GET  /api/v1/categories
+//   products      -> POST /api/v1/search
+//   brands        -> derived from search results (no brand entity in the API)
+//   articles      -> GET  /api/v1/content/articles
+//   farmServices  -> GET  /api/v1/services
+//   districts     -> GET  /api/v1/reference/geographies
+//   sampleOrders  -> GET  /api/v1/orders
+//   tickerRow     -> POST /api/v1/search (real prices; the invented % deltas are gone)
+//   sampleNotes   -> built from real orders; the farmer API has no notifications endpoint
+// ============================================================================
+
+type RetiredProduct = {
   id: string
   name: string
   nameBn: string
@@ -29,7 +53,7 @@ export type Product = {
   onSale?: boolean
 }
 
-export const categories = [
+const RETIRED_categories = [
   { id: 'seeds', icon: '01', name: 'Seeds', nameBn: 'বীজ', note: 'Field, vegetable and fruit seeds', noteBn: 'ক্ষেত, সবজি ও ফলের বীজ' },
   { id: 'fertilizers', icon: '02', name: 'Fertilizers', nameBn: 'সার', note: 'Crop nutrition essentials', noteBn: 'ফসলের পুষ্টি উপকরণ' },
   { id: 'protection', icon: '03', name: 'Crop Protection', nameBn: 'ফসল সুরক্ষা', note: 'Pesticides and fungicides', noteBn: 'কীটনাশক ও ছত্রাকনাশক' },
@@ -38,7 +62,7 @@ export const categories = [
   { id: 'irrigation', icon: '06', name: 'Irrigation', nameBn: 'সেচ', note: 'Smart water solutions', noteBn: 'স্মার্ট সেচ সমাধান' },
 ]
 
-export const products: Product[] = [
+const RETIRED_products: RetiredProduct[] = [
   { id: 'p1', name: 'Hybrid Tomato Seeds', nameBn: 'হাইব্রিড টমেটো বীজ', brand: 'Lal Teer Seed', category: 'seeds', price: 850, old: 1000, badge: '15% OFF', badgeBn: '১৫% ছাড়', image: 'https://images.unsplash.com/photo-1592924357228-91a4daadcfea?auto=format&fit=crop&w=800&q=80', color: '#a6502c', rating: 4.8, reviews: 124, stock: 86, unit: '10g pack', unitBn: '১০ গ্রাম প্যাক', desc: 'High-yield hybrid tomato seed selected for Bangladesh monsoon conditions. Strong disease resistance and uniform fruit size.', descBn: 'বাংলাদেশের বর্ষার জন্য নির্বাচিত উচ্চ ফলনশীল হাইব্রিড টমেটো বীজ। রোগ প্রতিরোধ ক্ষমতা শক্তিশালী এবং ফলের আকার সমান।', tags: ['vegetable', 'hybrid'], tagsBn: ['সবজি', 'হাইব্রিড'], onSale: true, bestSeller: true },
   { id: 'p2', name: 'Urea Fertilizer — 50kg', nameBn: 'ইউরিয়া সার — ৫০ কেজি', brand: 'BCIC Authorized', category: 'fertilizers', price: 1180, badge: 'Best Seller', badgeBn: 'বেস্ট সেলার', image: 'https://images.unsplash.com/photo-1523741543316-beb7fc7023d8?auto=format&fit=crop&w=800&q=80', color: '#3f6b3a', rating: 4.9, reviews: 418, stock: 240, unit: '50kg bag', unitBn: '৫০ কেজি বস্তা', desc: 'Government-authorized urea for paddy, wheat and vegetable fields. Consistent granule quality with verified source.', descBn: 'ধান, গম ও সবজি ক্ষেতের জন্য সরকার অনুমোদিত ইউরিয়া। যাচাইকৃত উৎস ও সমান দানার মান।', tags: ['nitrogen'], tagsBn: ['নাইট্রোজেন'], bestSeller: true },
   { id: 'p3', name: 'Neem Bio Pesticide', nameBn: 'নিম বায়ো কীটনাশক', brand: 'Apex Agro', category: 'protection', price: 420, badge: 'Organic', badgeBn: 'জৈব', image: 'https://images.unsplash.com/photo-1531853121101-cb94c8ed218d?auto=format&fit=crop&w=800&q=80', color: '#c98a1f', rating: 4.6, reviews: 89, stock: 152, unit: '1 litre', unitBn: '১ লিটার', desc: 'Botanical neem extract for sucking pests and early fungal pressure. Safe around beneficial insects when used as directed.', descBn: 'চোষক পোকা ও প্রাথমিক ছত্রাক চাপের জন্য নিম নির্যাস। নির্দেশমতো ব্যবহার করলে উপকারী পোকা নিরাপদ থাকে।', tags: ['organic', 'neem'], tagsBn: ['জৈব', 'নিম'], onSale: true },
@@ -53,7 +77,7 @@ export const products: Product[] = [
   { id: 'p12', name: 'Cattle Feed Mix 40kg', nameBn: 'গবাদি পশুর খাবার ৪০ কেজি', brand: 'Aftab Feed', category: 'feed', price: 1960, badge: 'Balanced', badgeBn: 'সুষম', image: 'https://images.unsplash.com/photo-1500595046743-cd271d815d08?auto=format&fit=crop&w=800&q=80', color: '#a6502c', rating: 4.5, reviews: 61, stock: 88, unit: '40kg bag', unitBn: '৪০ কেজি বস্তা', desc: 'Balanced dairy mix with energy, protein and minerals. Supports milk yield through the dry season.', descBn: 'শক্তি, প্রোটিন ও খনিজসহ সুষম দুধাল মিশ্রণ। শুষ্ক মৌসুমে দুধ উৎপাদন সহায়তা করে।', tags: ['livestock'], tagsBn: ['গবাদি'] },
 ]
 
-export const brands = [
+const RETIRED_brands = [
   { name: 'Lal Teer Seed', field: 'Seeds', fieldBn: 'বীজ', since: '1995', sinceBn: '১৯৯৫', products: 3, note: 'Vegetable and field crop genetics trusted nationwide.', noteBn: 'সারাদেশে বিশ্বস্ত সবজি ও ক্ষেত ফসলের জিনেটিক্স।' },
   { name: 'ACI Seed', field: 'Seeds', fieldBn: 'বীজ', since: '1968', sinceBn: '১৯৬৮', products: 2, note: 'Certified rice and hybrid lines for Bangladesh seasons.', noteBn: 'বাংলাদেশের মৌসুমের জন্য প্রত্যয়িত ধান ও হাইব্রিড লাইন।' },
   { name: 'BCIC Authorized', field: 'Fertilizers', fieldBn: 'সার', since: '1976', sinceBn: '১৯৭৬', products: 3, note: 'Official urea, DAP and TSP supply chain.', noteBn: 'সরকারি ইউরিয়া, ডিএপি ও টিএসপি সরবরাহ চেইন।' },
@@ -64,7 +88,7 @@ export const brands = [
   { name: 'Rahimafrooz', field: 'Energy', fieldBn: 'জ্বালানি', since: '1954', sinceBn: '১৯৫৪', products: 1, note: 'Solar pumping systems for off-grid farms.', noteBn: 'অফ-গ্রিড খামারের সোলার পাম্পিং ব্যবস্থা।' },
 ]
 
-export const articles = [
+const RETIRED_articles = [
   { id: 'a1', title: 'Preparing paddy before the monsoon break', titleBn: 'বর্ষা ভাঙার আগে ধান ক্ষেত প্রস্তুত', kicker: 'Field notes', kickerBn: 'মাঠ নোট', read: '6 min', readBn: '৬ মিনিট', body: 'Drain standing water from seedbeds, check germination of stored seed, and stage urea for the first top-dress. Fields that are levelled now lose less nitrogen after the first heavy rain. Keep a 7-day weather window in mind before transplanting BR-28 and similar Aman lines.', bodyBn: 'বীজতলা থেকে দাঁড়ানো পানি সরান, মজুত বীজের অঙ্কুরোদগম দেখুন এবং প্রথম টপ-ড্রেসের ইউরিয়া প্রস্তুত রাখুন। এখন সমান করা জমিতে প্রথম ভারী বৃষ্টির পর নাইট্রোজেন কম হারায়। বিআর-২৮ ও অনুরূপ আমন লাইন রোপণের আগে সাত দিনের আবহাওয়া খেয়াল রাখুন।' },
   { id: 'a2', title: 'How to read a soil test without a lab degree', titleBn: 'ল্যাব ডিগ্রি ছাড়া মাটি পরীক্ষা পড়া', kicker: 'Soil', kickerBn: 'মাটি', read: '5 min', readBn: '৫ মিনিট', body: 'pH tells you whether phosphate will lock up. Organic matter tells you how well the soil holds water. If nitrogen is low but phosphorus is adequate, split urea instead of adding more DAP. Bring a sample from 0–15 cm, mix five spots, and keep it dry until drop-off.', bodyBn: 'পিএইচ বলে ফসফেট আটকে যাবে কি না। জৈব পদার্থ বলে মাটি কতটা পানি ধরে। নাইট্রোজেন কম কিন্তু ফসফরাস পর্যাপ্ত হলে আর ডিএপি না দিয়ে ইউরিয়া ভাগ করে দিন। ০–১৫ সেমি থেকে নমুনা নিন, পাঁচ জায়গা মেশান, জমা দেওয়া পর্যন্ত শুকনো রাখুন।' },
   { id: 'a3', title: 'Neem first, chemistry second', titleBn: 'আগে নিম, পরে রাসায়নিক', kicker: 'Crop care', kickerBn: 'ফসল পরিচর্যা', read: '4 min', readBn: '৪ মিনিট', body: 'Scout the underside of leaves twice a week. If whiteflies or aphids are just starting, a neem spray at dusk often holds them. Save synthetic products for outbreak thresholds — it protects beneficial insects and keeps residue lower at harvest.', bodyBn: 'সপ্তাহে দুবার পাতার নিচ দেখুন। সাদামাছি বা জাব পোকা শুরু হলে সন্ধ্যায় নিম স্প্রে প্রায়ই ধরে রাখে। প্রাদুর্ভাবের সীমায় না পৌঁছালে কৃত্রিম ওষুধ রাখুন — উপকারী পোকা বাঁচে এবং ফসলে অবশিষ্টাংশ কম থাকে।' },
@@ -79,7 +103,7 @@ export const faqs = [
   { q: 'What is the return window?', qBn: 'ফেরতের সময়সীমা কত?', a: 'Unopened seed, feed and equipment can be returned within 7 days. Opened fertilizer and pesticide cannot be returned for safety reasons.', aBn: 'না খোলা বীজ, খাদ্য ও যন্ত্র ৭ দিনের মধ্যে ফেরত যায়। নিরাপত্তার কারণে খোলা সার ও কীটনাশক ফেরত নেওয়া হয় না।' },
 ]
 
-export const tickerRow = [
+const RETIRED_tickerRow = [
   { label: 'Paddy (Coarse)', labelBn: 'মোটা ধান', price: '৳1,180 /40kg', priceBn: '৳১,১৮০ /৪০কেজি', delta: 2.1 },
   { label: 'Urea', labelBn: 'ইউরিয়া', price: '৳1,180 /50kg', priceBn: '৳১,১৮০ /৫০কেজি', delta: 0 },
   { label: 'Onion', labelBn: 'পেঁয়াজ', price: '৳45 /kg', priceBn: '৳৪৫ /কেজি', delta: -1.2 },
@@ -89,31 +113,55 @@ export const tickerRow = [
   { label: 'Potato', labelBn: 'আলু', price: '৳28 /kg', priceBn: '৳২৮ /কেজি', delta: 1.5 },
 ]
 
-export const farmServices = [
+const RETIRED_farmServices = [
   { id: 'crop', title: 'Crop Diagnosis', titleBn: 'ফসল রোগ নির্ণয়', note: 'Photo-led diagnosis from a licensed agronomist within one working day.', noteBn: 'এক কর্মদিবসের মধ্যে লাইসেন্সপ্রাপ্ত কৃষিবিদের ছবিভিত্তিক নির্ণয়।', fee: 350, icon: '01' },
   { id: 'soil', title: 'Soil Testing', titleBn: 'মাটি পরীক্ষা', note: 'Drop a mixed 0–15 cm sample. pH, NPK and organic matter in 72 hours.', noteBn: '০–১৫ সেমি মিশ্র নমুনা দিন। ৭২ ঘণ্টায় পিএইচ, এনপিকে ও জৈব পদার্থ।', fee: 650, icon: '02' },
   { id: 'call', title: 'Talk to an Agronomist', titleBn: 'কৃষিবিদের সাথে কথা', note: 'A 20-minute call timed to your crop stage and union weather.', noteBn: 'আপনার ফসলের পর্যায় ও ইউনিয়নের আবহাওয়া অনুযায়ী ২০ মিনিটের কল।', fee: 200, icon: '03' },
   { id: 'visit', title: 'Farm Visit', titleBn: 'খামার পরিদর্শন', note: 'On-field walkthrough for plots within 40 km of a regional desk.', noteBn: 'আঞ্চলিক ডেস্কের ৪০ কিমির মধ্যে জমিতে সরেজমিন পরিদর্শন।', fee: 1800, icon: '04' },
 ]
 
-export const districts = ['Dhaka', 'Chattogram', 'Rajshahi', 'Khulna', 'Sylhet', 'Barishal', 'Rangpur', 'Mymensingh', 'Cumilla', 'Gazipur', 'Narayanganj', 'Bogura']
-export const districtsBn: Record<string, string> = {
+const RETIRED_districts = ['Dhaka', 'Chattogram', 'Rajshahi', 'Khulna', 'Sylhet', 'Barishal', 'Rangpur', 'Mymensingh', 'Cumilla', 'Gazipur', 'Narayanganj', 'Bogura']
+const RETIRED_districtsBn: Record<string, string> = {
   Dhaka: 'ঢাকা', Chattogram: 'চট্টগ্রাম', Rajshahi: 'রাজশাহী', Khulna: 'খুলনা', Sylhet: 'সিলেট',
   Barishal: 'বরিশাল', Rangpur: 'রংপুর', Mymensingh: 'ময়মনসিংহ', Cumilla: 'কুমিল্লা',
   Gazipur: 'গাজীপুর', Narayanganj: 'নারায়ণগঞ্জ', Bogura: 'বগুড়া', Natore: 'নাটোর',
 }
 
-export const sampleOrders = [
+const RETIRED_sampleOrders = [
   { id: 'AMC-24091', date: '28 Aug 2026', dateBn: '২৮ অগাস্ট ২০২৬', status: 'In transit', district: 'Rajshahi', total: 2630, items: 'Urea 50kg · Neem Bio', itemsBn: 'ইউরিয়া ৫০ কেজি · নিম বায়ো' },
   { id: 'AMC-23902', date: '12 Aug 2026', dateBn: '১২ অগাস্ট ২০২৬', status: 'Delivered', district: 'Rajshahi', total: 1240, items: 'Rice Seeds BR-28', itemsBn: 'ধান বীজ বিআর-২৮' },
   { id: 'AMC-23110', date: '02 Jul 2026', dateBn: '০২ জুলাই ২০২৬', status: 'Delivered', district: 'Natore', total: 850, items: 'Hybrid Tomato Seeds', itemsBn: 'হাইব্রিড টমেটো বীজ' },
 ]
 
-export const sampleNotes = [
+const RETIRED_sampleNotes = [
   { id: 'n1', title: 'Van left the Rajshahi desk', titleBn: 'রাজশাহী ডেস্ক থেকে ভ্যান বেরিয়েছে', body: 'Order AMC-24091 is on the Natore road. Expected tomorrow before noon.', bodyBn: 'অর্ডার AMC-24091 নাটোর সড়কে আছে। আগামীকাল দুপুরের আগে পৌঁছানোর কথা।', time: '2h ago', timeBn: '২ ঘণ্টা আগে', unread: true },
   { id: 'n2', title: 'Urea restocked', titleBn: 'ইউরিয়া স্টক হয়েছে', body: 'BCIC authorized urea is back in 50kg bags across the northern desk.', bodyBn: 'উত্তর ডেস্কে বিসিআইসি অনুমোদিত ইউরিয়া ৫০ কেজি বস্তায় ফিরেছে।', time: 'Yesterday', timeBn: 'গতকাল', unread: true },
   { id: 'n3', title: 'Soil test ready', titleBn: 'মাটি পরীক্ষা প্রস্তুত', body: 'Sample ST-441 is ready for pickup. pH 6.2, nitrogen moderate.', bodyBn: 'নমুনা ST-441 নেওয়ার জন্য প্রস্তুত। পিএইচ ৬.২, নাইট্রোজেন মাঝারি।', time: '3 days ago', timeBn: '৩ দিন আগে', unread: false },
 ]
 
 export const topicKeys = ['Delivery', 'Product quality', 'Payment', 'Service booking'] as const
-export const payKeys = ['bKash', 'Nagad', 'Card', 'Cash on delivery'] as const
+/**
+ * Payment codes the translated labels in `i18n.pays` line up with, in order.
+ *
+ * These are the API's own codes now, not display names — the checkout posts the code and the
+ * list of what is actually enabled comes from `/reference/payment-methods`. This array only
+ * answers "do we have a translated label for this one".
+ */
+export const payKeys = ['bkash', 'nagad', 'card', 'cash_on_delivery'] as const
+
+// Re-exported under their original names so a future reader can still reach them, and so a
+// deliberate import reads as deliberate. The `RETIRED_` prefix on the declarations above is what
+// makes an accidental one visible in a diff.
+export {
+  RETIRED_categories as retiredCategories,
+  RETIRED_products as retiredProducts,
+  RETIRED_brands as retiredBrands,
+  RETIRED_articles as retiredArticles,
+  RETIRED_farmServices as retiredFarmServices,
+  RETIRED_districts as retiredDistricts,
+  RETIRED_districtsBn as retiredDistrictsBn,
+  RETIRED_sampleOrders as retiredSampleOrders,
+  RETIRED_sampleNotes as retiredSampleNotes,
+  RETIRED_tickerRow as retiredTickerRow,
+}
+export type { RetiredProduct }
