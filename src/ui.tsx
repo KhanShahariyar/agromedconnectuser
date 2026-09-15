@@ -58,20 +58,10 @@ export function FlipDigit({ value }: { value: string }) {
   return <span className={flip ? 'flip-digit flipping' : 'flip-digit'}>{display}</span>
 }
 
-/**
- * A live strip of what things currently cost.
- *
- * The mock version carried a percentage movement per row. Those numbers are gone rather than
- * recomputed, because the API has no price history for a farmer-facing endpoint to read: a green
- * "+2.1%" on a page selling agricultural inputs is a number a buyer will act on, and inventing one
- * is not a design shortcut but a false claim. What remains — the name and the server-rendered,
- * localised price — is true.
- */
 export function PriceTicker({ items, label }: { items: ProductView[]; label: string }) {
-  // Nothing to scroll yet. Rendering the empty rail would leave a dark band across the page for as
-  // long as the catalogue takes to load.
+
   if (items.length === 0) return null
-  // Doubled so the CSS marquee loops without a visible seam.
+
   const doubled = [...items, ...items]
   return <div className="ticker">
     <div className="ticker-label"><span>{label}</span></div>
@@ -109,8 +99,8 @@ export function ProductCard({ product, t, wishlisted, onWishlist, onCart, onOpen
   const soldOut = product.stockSignal === 'out_of_stock'
   return <article ref={cardRef} className="product-card reveal tilt" style={{ transitionDelay: `${Math.min(index, 8) * 50}ms` }} onMouseMove={onMove} onMouseLeave={() => { const el = cardRef.current; if (el) { el.style.setProperty('--ry', '0deg'); el.style.setProperty('--rx', '0deg') } }}>
     <button className={loaded ? 'product-photo loaded' : 'product-photo'} onClick={onOpen}>
-      {/* A listing without imagery still has to occupy the same box, or the grid reflows as photos
-          arrive. The initial stands in rather than a broken-image icon. */}
+      {
+}
       {product.image
         ? <img src={product.image} alt={product.name} loading="lazy" onLoad={() => setLoaded(true)} onError={() => setLoaded(true)}/>
         : <span className="photo-fallback" aria-hidden>{product.name.slice(0, 1)}</span>}
@@ -122,8 +112,8 @@ export function ProductCard({ product, t, wishlisted, onWishlist, onCart, onOpen
       <h3><button onClick={onOpen}>{product.name}</button></h3>
       <div className="rating">
         <Star size={12} fill="currentColor"/>
-        {/* A brand-new listing has no rating. "0.0 (0)" reads as a bad product rather than an
-            unreviewed one, so the count stands alone until someone has actually rated it. */}
+        {
+}
         {product.reviews > 0 ? <><b>{product.rating.toFixed(1)}</b> <span>({product.reviews})</span></> : <span>{t.noReviews}</span>}
       </div>
       <div className="price"><b>{product.price}</b>{product.originalPrice ? <del>{product.originalPrice}</del> : null}</div>
@@ -133,18 +123,9 @@ export function ProductCard({ product, t, wishlisted, onWishlist, onCart, onOpen
   </article>
 }
 
-/**
- * The basket.
- *
- * Every figure here — line totals, subtotal, discounts — comes from the server's `Cart`, not from
- * multiplying a price by a quantity in the browser. That matters because the two can disagree:
- * a discount rule, a seller-specific delivery charge or a price that moved since the item went in
- * are all applied server-side, and a locally computed total would confidently show the wrong
- * number right up until checkout refused it.
- */
 export function CartDrawer({ cart, busyItemId, t, onClose, onQty, onRemove, onCheckout, onShop }: {
   cart: Cart | undefined
-  /** The line currently being changed, so its controls can lock without freezing the whole drawer. */
+
   busyItemId: string | null
   t: Copy
   onClose: () => void
@@ -163,8 +144,8 @@ export function CartDrawer({ cart, busyItemId, t, onClose, onQty, onRemove, onCh
       </div>
       {lines.length ? <>
         <div className="cart-lines">{cart!.sellers.map(seller => <div key={seller.sellerOrganisationId}>
-          {/* Grouped by seller because that is how the order is actually fulfilled and paid: one
-              basket can span several manufacturers, each shipping separately. */}
+          {
+}
           {cart!.sellers.length > 1 && <p className="cart-seller">{seller.sellerName}</p>}
           {seller.items.map(item => <article key={item.id} className={busyItemId === item.id ? 'is-busy' : undefined}>
             {item.imageUrl ? <img src={item.imageUrl} alt="" loading="lazy"/> : <span className="photo-fallback small" aria-hidden>{item.name.slice(0, 1)}</span>}

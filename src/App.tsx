@@ -1,13 +1,16 @@
+import { Notifications } from './Notifications'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Bell, ChevronDown, Heart, Menu, Search, ShoppingCart, UserRound, X } from 'lucide-react'
 import farmerHero from './assets/farmer-hero.png'
-import { faqs, payKeys, topicKeys, type Page } from './data'
+import { payKeys, topicKeys, type Page } from './data'
 import { i18n } from './i18n'
+import { onPushMessage, registerPush } from './push'
 import {
   CartDrawer, CursorGlow, FlipDigit, HeroParticles, Magnetic, PageHero,
   PriceTicker, ProductCard, SplitHeadline, pad, useReveal,
 } from './ui'
 import * as api from './api/endpoints'
+import { TaxonomyBrowser, emptySelection, deepestLabel, hasSelection, type TaxonomySelection } from './TaxonomyBrowser'
 import { getLocale, setLocale } from './api/client'
 import { ApiError } from './api/problem'
 import { useQuery } from './state/useQuery'
@@ -20,15 +23,6 @@ import {
 
 type Lang = 'en' | 'bn'
 
-/**
- * Locale is a request header, not a UI flag.
- *
- * The API renders listing names, category names and every price string server-side against the
- * locale it was asked for, so switching language has to reach the network layer before any query
- * re-runs. `setLocale` is called during render rather than in an effect for exactly that reason:
- * by the time the queries below build their keys, the client must already be speaking the new
- * language, or the first fetch after a switch comes back in the old one.
- */
 const API_LOCALE: Record<Lang, 'en-US' | 'bn-BD'> = { en: 'en-US', bn: 'bn-BD' }
 
 const navMap: Record<string, Page> = {
@@ -38,7 +32,6 @@ const navMap: Record<string, Page> = {
   সেবা: 'services', অফার: 'offers', জ্ঞান: 'knowledge', সহায়তা: 'support',
 }
 
-/** Maps the shop's tabs onto what the search endpoint actually understands. */
 function tabFilters(tab: string): Partial<api.SearchArgs> {
   if (tab === 'best') return { sort: 'rating' }
   if (tab === 'new') return { sort: 'newest' }
@@ -47,18 +40,65 @@ function tabFilters(tab: string): Partial<api.SearchArgs> {
 }
 
 export default function App() {
-  const [page, setPage] = useState<Page>('home')
+
+  const [page, setPage] = useState<Page>(() => {
+    try {
+      return new URLSearchParams(window.location.search).get('view') === 'notifications'
+        ? 'notifications'
+        : 'home'
+    } catch {
+      return 'home'
+    }
+  })
   const [lang, setLang] = useState<Lang>('en')
   const [menu, setMenu] = useState(false)
+
+  const [inboxRevision, setInboxRevision] = useState(0)
   const [browse, setBrowse] = useState(false)
   const [query, setQuery] = useState('')
   const [draft, setDraft] = useState('')
-  const [category, setCategory] = useState('all')
+  // The three taxonomy tiers, applied progressively. Replaces the single flat
+  // `category`, which could only ever express one level of a three-level tree.
+  const [taxonomy, setTaxonomy] = useState<TaxonomySelection>(() => {
+    // A shared link carries ids only. TaxonomyChips notices the names are
+    // missing and fills them from /categories/{id}/breadcrumb.
+    const p = new URLSearchParams(window.location.search)
+    return {
+      ...emptySelection,
+      divisionId: p.get('division_id') ?? '',
+      categoryId: p.get('category_id') ?? '',
+      subcategoryId: p.get('subcategory_id') ?? '',
+    }
+  })
+
+  // Keep the address bar in step, so the filtered list is shareable and
+  // survives a reload. replaceState, not pushState: narrowing a filter is not
+  // a navigation, and Back should leave the shop rather than walk the filter
+  // history one chip at a time.
+  useEffect(() => {
+    const p = new URLSearchParams(window.location.search)
+    for (const [k, v] of [
+      ['division_id', taxonomy.divisionId],
+      ['category_id', taxonomy.categoryId],
+      ['subcategory_id', taxonomy.subcategoryId],
+    ] as const) {
+      if (v) p.set(k, v); else p.delete(k)
+    }
+    const qs = p.toString()
+    window.history.replaceState(null, '', qs ? `?${qs}` : window.location.pathname)
+  }, [taxonomy.divisionId, taxonomy.categoryId, taxonomy.subcategoryId])
   const [tab, setTab] = useState('all')
   const [brandFilter, setBrandFilter] = useState('')
+  const [activeIngredientSort, setActiveIngredientSort] = useState<'none' | 'asc' | 'desc'>('none')
+  const [activeIngredientPriceMax, setActiveIngredientPriceMax] = useState('')
   const [productId, setProductId] = useState<string | null>(null)
   const [articleId, setArticleId] = useState<string | null>(null)
+  const [articleSlug, setArticleSlug] = useState<string | null>(null)
   const [cartOpen, setCartOpen] = useState(false)
+  const checkoutIdempotencyKey = useRef<string | null>(null)
+  const [compareIds, setCompareIds] = useState<string[]>(() => {
+    try { return JSON.parse(localStorage.getItem('agromed.compare') ?? '[]') as string[] } catch { return [] }
+  })
   const [busyItemId, setBusyItemId] = useState<string | null>(null)
   const [toast, setToast] = useState('')
   const [scrolled, setScrolled] = useState(false)
@@ -69,7 +109,12 @@ export default function App() {
   const [faqOpen, setFaqOpen] = useState(0)
   const [trackNumber, setTrackNumber] = useState('')
   const [trackHitId, setTrackHitId] = useState<string | null>(null)
-  const [acctTab, setAcctTab] = useState<'orders' | 'profile' | 'services'>('orders')
+  const [acctTab, setAcctTab] = useState<'orders' | 'profile' | 'services' | 'cases' | 'reviews'>('orders')
+  const [caseForm, setCaseForm] = useState({ orderId: '', orderLineId: '', quantity: '1', reason: 'damaged', category: 'quality', description: '' })
+  const [reviewForm, setReviewForm] = useState({ orderLineId: '', rating: '5', body: '', effectiveness: '5', valueForMoney: '5', packaging: '5', authenticity: '5' })
+  const [editingReviewId, setEditingReviewId] = useState<string | null>(null)
+  const [selectedReturnId, setSelectedReturnId] = useState<string | null>(null)
+  const [selectedDisputeId, setSelectedDisputeId] = useState<string | null>(null)
   const [checkoutForm, setCheckoutForm] = useState({ addressLine: '', phone: '', geographyId: '', pay: '', note: '' })
   const [placedOrder, setPlacedOrder] = useState<{ number: string; total: string } | null>(null)
   const [placing, setPlacing] = useState(false)
@@ -84,7 +129,6 @@ export default function App() {
   const bn = lang === 'bn'
   const signedIn = auth.status === 'authenticated'
 
-  // Applied during render, before any query key below is built. See API_LOCALE.
   if (getLocale() !== API_LOCALE[lang]) setLocale(API_LOCALE[lang])
   const locale = API_LOCALE[lang]
 
@@ -102,33 +146,44 @@ export default function App() {
     window.scrollTo({ top: 0, behavior: 'smooth' })
   }
 
-  // ------------------------------------------------------------------ queries
-  // Every key carries the locale, so switching language invalidates the lot and the API re-renders
-  // the same rows in the other script. Nothing is translated in the browser.
+  const pushUserId = auth.user?.id ?? null
+  useEffect(() => {
+    if (!pushUserId) return
+    void registerPush(pushUserId)
+  }, [pushUserId])
+
+  useEffect(() => {
+    const stop = onPushMessage(() => setInboxRevision(n => n + 1))
+    const onServiceWorkerMessage = (event: MessageEvent) => {
+      if (event.data?.type === 'agromed:open-notifications') go('notifications')
+    }
+    navigator.serviceWorker?.addEventListener('message', onServiceWorkerMessage)
+    return () => {
+      stop()
+      navigator.serviceWorker?.removeEventListener('message', onServiceWorkerMessage)
+    }
+
+  }, [])
 
   const categoriesQuery = useQuery(`categories|${locale}`, (signal) =>
     api.getCategories(signal).then(toCategories))
 
-  /**
-   * The shop grid.
-   *
-   * Filtering and sorting are the server's job, not a `.filter()` over a fetched array. The mock
-   * version could filter locally because it held seventeen products; a real catalogue does not fit
-   * in the browser, and a filter that only searches the page you happen to have loaded quietly
-   * lies about what is for sale.
-   */
   const shopQuery = useQuery(
-    `search|${locale}|${query}|${category}|${tab}|${brandFilter}`,
+    `search|${locale}|${query}|${taxonomy.divisionId}|${taxonomy.categoryId}|${taxonomy.subcategoryId}|${tab}|${brandFilter}|${activeIngredientSort}|${activeIngredientPriceMax}`,
     (signal) => api.search({
       text: query || undefined,
-      categoryId: category === 'all' ? undefined : category,
+      divisionId: taxonomy.divisionId || undefined,
+      categoryId: taxonomy.categoryId || undefined,
+      subcategoryId: taxonomy.subcategoryId || undefined,
       brand: brandFilter || undefined,
+      maxActiveIngredientPriceMinor: Number.isFinite(Number(activeIngredientPriceMax)) && Number(activeIngredientPriceMax) > 0
+        ? Math.round(Number(activeIngredientPriceMax) * 100) : undefined,
       limit: 48,
       ...tabFilters(tab),
+      sort: activeIngredientSort === 'none' ? undefined : `active_ingredient_price_${activeIngredientSort}`,
     }, signal).then((r) => r.items.map(toProduct)),
   )
 
-  /** Home page picks. A separate query from the shop's, so navigating does not refetch both. */
   const featuredQuery = useQuery(`featured|${locale}`, (signal) =>
     api.search({ sort: 'rating', limit: 4 }, signal).then((r) => r.items.map(toProduct)))
 
@@ -143,6 +198,11 @@ export default function App() {
 
   const articlesQuery = useQuery(`articles|${locale}`, (signal) =>
     api.getArticles(12, signal).then((list) => toArticles(list, t.minRead)))
+  const articleQuery = useQuery(`article|${locale}|${articleSlug}`, signal =>
+    articleSlug ? api.getArticle(articleSlug, signal) : Promise.reject(new Error('article_missing')),
+    { enabled: page === 'article' && articleSlug !== null })
+
+  const faqsQuery = useQuery(`faqs|${locale}`, (signal) => api.getFaqs(undefined, signal))
 
   const offersQuery = useQuery(`offers|${locale}`, (signal) =>
     api.search({ onOfferOnly: true, limit: 24 }, signal).then((r) => r.items.map(toProduct)))
@@ -151,9 +211,7 @@ export default function App() {
 
   const geographyQuery = useQuery(`geographies|${locale}`, (signal) =>
     api.getGeographies(signal).then((rows) => {
-      // The reference table is a hierarchy and only the levels actually seeded are present. Taking
-      // the deepest populated level below `country` means this keeps working as districts and
-      // upazilas are added, without a code change or a hard-coded list of sixty-four names.
+
       const byLevel = new Map<string, typeof rows>()
       for (const row of rows) {
         if (row.level === 'country') continue
@@ -172,14 +230,27 @@ export default function App() {
     (signal) => api.getListing(productId!, signal).then(toProductDetail),
     { enabled: productId !== null },
   )
+  const equivalentsQuery = useQuery(
+    `equivalents|${locale}|${productId}`,
+    (signal) => productId ? api.getEquivalents(productId, signal) : Promise.resolve({ items: [] }),
+    { enabled: productId !== null, isEmpty: (result) => result.items.length === 0 },
+  )
+  const reviewsQuery = useQuery(
+    `reviews|${locale}|${productId ?? ''}`,
+    (signal) => productId ? api.getReviews(productId, signal).then((r) => r.items) : Promise.resolve([]),
+    { enabled: productId !== null, isEmpty: (items) => items.length === 0 },
+  )
+  const comparisonQuery = useQuery(
+    `compare|${locale}|${compareIds.join(',')}`,
+    (signal) => api.compareListings(compareIds, signal),
+    { enabled: page === 'compare' && compareIds.length >= 2 },
+  )
 
   const relatedQuery = useQuery(
     `related|${locale}|${productId ?? ''}`,
     (signal) => api.getSuggestions(productId!, signal).then((list) => list.map(toProduct)),
     { enabled: productId !== null },
   )
-
-  // ---- signed-in reads. `enabled` keeps them from firing a guaranteed 401 while anonymous.
 
   const cartQuery = useQuery(`cart|${locale}|${signedIn}`, (signal) => api.getCart(signal), {
     enabled: signedIn,
@@ -194,6 +265,12 @@ export default function App() {
 
   const bookingsQuery = useQuery(`bookings|${locale}|${signedIn}`, (signal) =>
     api.getBookings(signal).then((r) => (Array.isArray(r) ? r : r.items)), { enabled: signedIn })
+  const returnsQuery = useQuery(`returns|${locale}|${signedIn}`, (signal) => api.getReturns(signal).then((r) => r.items), { enabled: signedIn, isEmpty: (v) => v.length === 0 })
+  const disputesQuery = useQuery(`disputes|${locale}|${signedIn}`, (signal) => api.getDisputes(signal).then((r) => r.items), { enabled: signedIn, isEmpty: (v) => v.length === 0 })
+  const myReviewsQuery = useQuery(`my-reviews|${locale}|${signedIn}`, (signal) => api.getMyReviews(signal).then((r) => r.items), { enabled: signedIn, isEmpty: (v) => v.length === 0 })
+  const caseOrderQuery = useQuery(`case-order|${locale}|${caseForm.orderId}`, (signal) => api.getOrder(caseForm.orderId, signal), { enabled: signedIn && acctTab === 'cases' && caseForm.orderId.length > 0 })
+  const returnDetailQuery = useQuery(`return-detail|${locale}|${selectedReturnId ?? ''}`, (signal) => api.getReturn(selectedReturnId!, signal), { enabled: selectedReturnId !== null })
+  const disputeDetailQuery = useQuery(`dispute-detail|${locale}|${selectedDisputeId ?? ''}`, (signal) => api.getDispute(selectedDisputeId!, signal), { enabled: selectedDisputeId !== null })
 
   const cart = cartQuery.data
   const cartCount = cart?.itemCount ?? 0
@@ -202,15 +279,6 @@ export default function App() {
     [wishlistQuery.data],
   )
 
-  // --------------------------------------------------------------- mutations
-
-  /**
-   * Runs a write, then re-reads what it changed.
-   *
-   * Deliberately not optimistic. An optimistic basket has to guess the server's arithmetic —
-   * discounts, per-seller delivery, a price that moved — and when the guess is wrong the number
-   * changes under the user's eyes a moment later. Re-reading costs a round trip and is always right.
-   */
   const mutate = useCallback(async (
     itemId: string | null,
     action: () => Promise<unknown>,
@@ -258,16 +326,13 @@ export default function App() {
   }
 
   const openProduct = (p: { id: string }) => go('product', () => setProductId(p.id))
+  const toggleCompare = (id: string) => setCompareIds(current => {
+    const next = current.includes(id) ? current.filter(x => x !== id) : current.length < 4 ? [...current, id] : current
+    localStorage.setItem('agromed.compare', JSON.stringify(next)); return next
+  })
   const openShop = (cat = 'all', nextTab = 'all', brand = '') =>
-    go('shop', () => { setCategory(cat); setTab(nextTab); setBrandFilter(brand); setQuery('') })
+    go('shop', () => { setTaxonomy({ ...emptySelection, divisionId: cat === 'all' ? '' : cat, divisionName: cat === 'all' ? '' : (categoriesQuery.data?.find((c) => c.id === cat)?.name ?? '') }); setTab(nextTab); setBrandFilter(brand); setQuery('') })
 
-  /**
-   * Places the order.
-   *
-   * Quote first, then place with the token the quote returned. The two-step exists so the price the
-   * buyer agreed to is the price the server charges: the client never posts a total, and a price
-   * that moved between the two calls is refused rather than silently applied.
-   */
   const placeOrder = async () => {
     if (!signedIn) return requireSignIn()
     if (!cart || cart.itemCount === 0) { showToast(t.cartEmptyT); return }
@@ -278,6 +343,7 @@ export default function App() {
     setPlacing(true)
     setCheckoutError(null)
     try {
+      checkoutIdempotencyKey.current ??= crypto.randomUUID()
       const quote = await api.quoteCheckout({
         deliveryGeographyId: checkoutForm.geographyId,
         paymentMethod: checkoutForm.pay,
@@ -289,11 +355,12 @@ export default function App() {
         deliveryContactPhone: checkoutForm.phone.trim(),
         deliveryGeographyId: checkoutForm.geographyId,
         note: checkoutForm.note.trim() || undefined,
-      })
+      }, checkoutIdempotencyKey.current)
       setPlacedOrder({ number: order.orderNumber, total: order.grandTotal.display })
       cartQuery.reload()
       ordersQuery.reload()
       showToast(`${t.orderPlaced} ${order.orderNumber}`)
+      checkoutIdempotencyKey.current = null
     } catch (error) {
       setCheckoutError(error instanceof ApiError ? error.detail : t.loadFailed)
     } finally {
@@ -321,12 +388,11 @@ export default function App() {
 
   const submitTicket = () => {
     if (!ticket.message.trim()) { showToast(t.writeMsg); return }
-    // Support tickets have no endpoint in this phase, so this stays local and says so rather than
-    // pretending to have reached anyone. TODO: REVIEW — wire to a support endpoint when one exists.
+
     const id = `T-${Date.now().toString().slice(-4)}`
     setTickets((x) => [{ id, topic: ticket.topic }, ...x])
     setTicket((prev) => ({ ...prev, message: '' }))
-    showToast(`${t.ticketOpened} ${id}`)
+    showToast(`${t.ticketOpened} ${id} — ${t.ticketLocal}`)
   }
 
   const trackedOrder = useMemo(() => {
@@ -336,8 +402,6 @@ export default function App() {
     if (!needle) return null
     return orders.find((o) => o.number.toLowerCase() === needle) ?? null
   }, [ordersQuery.data, trackHitId, trackNumber])
-
-  // --------------------------------------------------------------- chrome
 
   useEffect(() => { const id = window.setTimeout(() => setHeroReady(true), 60); return () => window.clearTimeout(id) }, [])
   useEffect(() => {
@@ -352,10 +416,8 @@ export default function App() {
     window.addEventListener('scroll', onScroll, { passive: true })
     return () => window.removeEventListener('scroll', onScroll)
   }, [])
-  useReveal(page + query + category + tab + brandFilter + lang + shopQuery.status)
+  useReveal(page + query + taxonomy.divisionId + taxonomy.categoryId + taxonomy.subcategoryId + tab + brandFilter + activeIngredientSort + activeIngredientPriceMax + lang + shopQuery.status)
 
-  // Prefills the delivery and service forms from the account once it is known, so a signed-in user
-  // is not retyping their own phone number.
   useEffect(() => {
     if (!auth.user) return
     const phone = auth.user.phoneE164 ?? ''
@@ -364,9 +426,6 @@ export default function App() {
     setTicket((f) => (f.name ? f : { ...f, name: auth.user!.fullName }))
   }, [auth.user])
 
-  // Defaults the pickers to the first real option once reference data lands. Hard-coding a default
-  // would post a code the platform may have disabled, and the failure would land on the buyer at
-  // the moment they press Place order.
   useEffect(() => {
     const first = geographyQuery.data?.[0]?.id
     if (!first) return
@@ -406,18 +465,6 @@ export default function App() {
     return page === target
   }
 
-  /**
-   * Sign-in, shown in place of any page that needs an account.
-   *
-   * An element, not a component declared here.
-   *
-   * It was written as an inner `function SignInPanel()` first, and that quietly broke the form:
-   * a component declared during render is a *new type* on every render, so React unmounted and
-   * remounted it each time anything in `App` changed state — including the query-status changes
-   * that fire while the user is typing. The remount discarded `SignInForm`'s own state, and the
-   * fields cleared themselves character by character. Holding an element built from a stable,
-   * module-level component keeps the instance alive across renders.
-   */
   const signInPanel = <SignInForm
     t={t}
     restoring={auth.status === 'restoring'}
@@ -430,19 +477,14 @@ export default function App() {
       onWishlist={() => toggleWish(p.id)} onCart={() => addToCart(p)} onOpen={() => openProduct(p)}/>
   ))}</div>
 
-  const clearFilters = () => { setQuery(''); setDraft(''); setCategory('all'); setTab('all'); setBrandFilter('') }
-  const categoryName = (id: string) =>
-    categoriesQuery.data?.find((c) => c.id === id)?.name ?? t.allInputs
-  const shopTitle = brandFilter || (category === 'all' ? t.allInputs : categoryName(category))
+  const filtersApplied = hasSelection(taxonomy) || Boolean(query || brandFilter)
+  const clearFilters = () => { setQuery(''); setDraft(''); setTaxonomy(emptySelection); setTab('all'); setBrandFilter(''); setActiveIngredientSort('none'); setActiveIngredientPriceMax('') }
+  // The picker reports the deepest tier's name, so the heading needs no extra
+  // lookup -- and works for a subcategory, which the flat CategoryView has no
+  // way to name.
+  const shopTitle = brandFilter || deepestLabel(taxonomy) || t.allInputs
   const shopNote = query ? `${t.resultsFor} “${query}”` : t.shopNote
-  /**
-   * A readable name for a payment code.
-   *
-   * The translated labels cover the four methods the copy was written for; anything else the
-   * platform enables — `rocket`, `bank_transfer` — falls back to its own code with the underscores
-   * turned into spaces, which is legible and, more importantly, true. Hiding an unknown method
-   * would silently remove a way to pay.
-   */
+
   const payLabel = (code: string) => {
     const i = payKeys.indexOf(code as (typeof payKeys)[number])
     if (i >= 0) return t.pays[i]
@@ -504,11 +546,9 @@ export default function App() {
           else go(next)
         }}>{label}{(label === 'Offers' || label === 'অফার') && <b>{t.hot}</b>}</button>
       ))}
-      {/* The top line is hidden below 640px, and it held the only language switch. On a phone -- the
-          device most of this site's users are on -- that left a Bengali speaker with no way to
-          reach Bengali, which since the switch now also sets the API locale means no way to read
-          product names in their own script either. These repeat those controls inside the drawer;
-          CSS shows them only where the top line is gone. */}
+      {
+
+}
       <div className="nav-extra">
         <button onClick={() => go('help')}>{t.help}</button>
         <button onClick={() => go('track')}>{t.track}</button>
@@ -625,19 +665,33 @@ export default function App() {
               <button key={id} className={tab === id ? 'tab-active' : ''} onClick={() => setTab(id)}>{label}</button>
             ))}
           </div>
-          <div className="chip-row">
-            <button className={category === 'all' ? 'chip on' : 'chip'} onClick={() => { setCategory('all'); setBrandFilter('') }}>{t.allCats}</button>
-            {(categoriesQuery.data ?? []).map((c) => (
-              <button key={c.id} className={category === c.id ? 'chip on' : 'chip'} onClick={() => { setCategory(c.id); setBrandFilter('') }}>{c.name}</button>
-            ))}
+          <TaxonomyBrowser
+            value={taxonomy}
+            onChange={(next) => { setTaxonomy(next); setBrandFilter('') }}
+            allLabel={t.allCats}
+            locale={locale}
+          />
+          <div className="chip-row" aria-label="Active ingredient price controls">
+            <label className="sr-only" htmlFor="ingredient-price-sort">Sort by active ingredient price</label>
+            <select id="ingredient-price-sort" value={activeIngredientSort} onChange={(e) => setActiveIngredientSort(e.target.value as 'none' | 'asc' | 'desc')}>
+              <option value="none">Standard sorting</option>
+              <option value="asc">Lowest price / active ingredient</option>
+              <option value="desc">Highest price / active ingredient</option>
+            </select>
+            <label className="sr-only" htmlFor="ingredient-price-max">Maximum price per gram</label>
+            <input id="ingredient-price-max" inputMode="decimal" value={activeIngredientPriceMax} onChange={(e) => setActiveIngredientPriceMax(e.target.value)} placeholder="Max price / g" />
           </div>
         </div>
         <Async
           query={shopQuery}
           skeleton={<SkeletonGrid count={8}/>}
           emptyTitle={t.noProducts}
-          emptyNote={t.noProductsP}
-          emptyAction={<button className="shop-now" onClick={clearFilters}>{t.clear}</button>}
+          emptyNote={filtersApplied
+            ? `Nothing matches ${deepestLabel(taxonomy) || t.allInputs} with the filters applied.`
+            : t.noProductsP}
+          emptyAction={filtersApplied
+            ? <button className="shop-now" onClick={clearFilters}>{t.clear}</button>
+            : undefined}
         >
           {(list) => grid(list)}
         </Async>
@@ -656,7 +710,9 @@ export default function App() {
                 <h1>{product.name}</h1>
                 <p className="pdp-meta">
                   {product.reviews > 0 ? `${product.rating.toFixed(1)} · ${product.reviews} ${t.reviews}` : t.noReviews}
-                  {product.unit ? ` · ${product.unit}` : ''} · {t.sku} {product.sku}
+                  {product.unit ? ` · ${product.unit}` : ''}
+                  {product.normalizedUnitPrice ? ` · ${product.normalizedUnitPrice}` : ''} · {t.sku} {product.sku}
+                  {product.activeIngredientPrice ? ` · ${product.activeIngredientPrice}` : ''}
                 </p>
                 <p>{product.description}</p>
                 <div className="price big"><b>{product.price}</b>{product.originalPrice ? <del>{product.originalPrice}</del> : null}</div>
@@ -665,6 +721,7 @@ export default function App() {
                   <button className="shop-now" onClick={() => addToCart(product)} disabled={product.stockSignal === 'out_of_stock'}>{t.addCart}</button>
                   <button className="outline" onClick={() => { addToCart(product); go('checkout') }} disabled={product.stockSignal === 'out_of_stock'}>{t.buyNow}</button>
                   <button className={wishlistIds.has(product.id) ? 'ghost on' : 'ghost'} onClick={() => toggleWish(product.id)}>{wishlistIds.has(product.id) ? t.saved : t.save}</button>
+                  <button className="outline" onClick={() => toggleCompare(product.id)}>{compareIds.includes(product.id) ? 'Remove comparison' : 'Compare'}</button>
                 </div>
                 {product.attributes.length > 0 && <div className="chip-row tight">
                   {product.attributes.map((a) => <span key={a.label} className="chip static">{a.label}: {a.value}</span>)}
@@ -674,10 +731,23 @@ export default function App() {
             {product.usage.length > 0 && <div className="panel usage">
               {product.usage.map((u) => <div key={u.heading}><h4>{u.heading}</h4><p>{u.body}</p></div>)}
             </div>}
+            <section className="panel"><h3 className="subhead">Reviews</h3><Async query={reviewsQuery} emptyTitle="No published reviews yet" emptyNote="Verified reviews appear here after moderation.">{(reviews) => <div className="order-list">{reviews.map((review) => <article className="order-row static" key={review.id}><b>{review.rating}/5 · {review.authorName || 'Buyer'}</b><small>{review.body}</small>{review.sellerReply && <small>Seller reply: {review.sellerReply}</small>}</article>)}</div>}</Async></section>
             <h3 className="subhead">{t.also}</h3>
             <Async query={relatedQuery} emptyTitle={t.noProducts}>{(list) => grid(list)}</Async>
+            <Async query={equivalentsQuery} emptyTitle="">
+              {(response) => response.items.length > 1 && <section className="panel"><h3 className="subhead">Equivalent products</h3>
+                {grid(response.items.filter((x) => x.listing.id !== product.id).map((x) => ({ ...toProduct(x.listing), price: x.unitPrice?.display ?? '—' })))}</section>}
+            </Async>
           </>}
         </Async>
+      </section>}
+
+      {compareIds.length > 0 && page !== 'compare' && <button className="shop-now" onClick={() => go('compare')}>Compare ({compareIds.length})</button>}
+      {page === 'compare' && <section className="section"><PageHero kicker="Compare" title="Product comparison" note="Compare up to four products using current prices and availability."/>
+        {compareIds.length < 2 ? <p>Select at least two products to compare.</p> : <Async query={comparisonQuery} emptyTitle={t.noProducts}>{result => <>
+          <button className="outline" onClick={() => { setCompareIds([]); localStorage.removeItem('agromed.compare') }}>Clear comparison</button>
+          <div className="panel" style={{ overflowX: 'auto' }}><table><thead><tr><th>Attribute</th>{result.listings.map(l => <th key={l.id}>{l.name}<button onClick={() => toggleCompare(l.id)}>Remove</button></th>)}</tr></thead><tbody>{result.rows.map(row => <tr key={row.code}><th>{row.label}</th>{row.values.map((v, i) => <td key={i}>{v ?? '—'}</td>)}</tr>)}</tbody></table></div>
+        </>}</Async>}
       </section>}
 
       {page === 'brands' && <section className="section">
@@ -732,7 +802,7 @@ export default function App() {
         <PageHero kicker={t.notes} title={t.knowH} note={t.knowP}/>
         <Async query={articlesQuery} skeleton={<SkeletonGrid count={6}/>} emptyTitle={t.noArticles}>
           {(list) => <div className="article-grid">{list.map((a, i) => (
-            <button key={a.id} className="article-card reveal" style={{ transitionDelay: `${i * 50}ms` }} onClick={() => go('article', () => setArticleId(a.id))}>
+            <button key={a.id} className="article-card reveal" style={{ transitionDelay: `${i * 50}ms` }} onClick={() => go('article', () => { setArticleId(a.id); setArticleSlug(a.slug) })}>
               <small>{a.kicker} · {a.read}</small>
               <h3>{a.title}</h3>
               <p>{a.summary}</p>
@@ -744,17 +814,13 @@ export default function App() {
 
       {page === 'article' && <section className="section article-page">
         <button className="text-link" onClick={() => go('knowledge')}>{t.backKnow}</button>
-        <Async query={articlesQuery} emptyTitle={t.noArticles}>
-          {(list) => {
-            const article = list.find((a) => a.id === articleId) ?? list[0]
-            if (!article) return null
+        <Async query={articleQuery} emptyTitle={t.noArticles}>
+          {(article) => {
             return <>
-              <small className="eyebrow">{article.kicker} · {article.read}</small>
+              <small className="eyebrow">{article.category} · {article.minutesRead} {t.minRead}</small>
               <h1>{article.title}</h1>
-              {/* The content endpoint returns a summary, not a body — there is no article-detail
-                  route to call. Rendering the summary as the article is honest; padding it with
-                  invented paragraphs would not be. */}
               <p className="lead">{article.summary}</p>
+              <div className="article-body">{article.body.split(/\n{2,}/).map((paragraph: string, i: number) => <p key={i}>{paragraph}</p>)}</div>
               <small className="muted">{formatDate(article.publishedAt, locale)}</small>
               <button className="shop-now" onClick={() => go('services')}>{t.askAgro}</button>
             </>
@@ -773,14 +839,16 @@ export default function App() {
             </select></label>
             <label>{t.message}<textarea rows={4} value={ticket.message} onChange={(e) => setTicket({ ...ticket, message: e.target.value })}/></label>
             <button className="shop-now" type="submit">{t.sendDesk}</button>
-            {tickets[0] && <p className="ok">{t.latestTicket} {tickets[0].id} · {topicLabel(tickets[0].topic)}</p>}
+            {tickets[0] && <p className="ok">{t.latestTicket} {tickets[0].id} · {topicLabel(tickets[0].topic)}<br/><small>{t.ticketLocal}</small></p>}
           </form>
           <div>
-            {faqs.map((f, i) => (
-              <button key={f.q} className={faqOpen === i ? 'faq open' : 'faq'} onClick={() => setFaqOpen(faqOpen === i ? -1 : i)}>
-                <b>{bn ? f.qBn : f.q}</b>{faqOpen === i && <p>{bn ? f.aBn : f.a}</p>}
-              </button>
-            ))}
+            <Async query={faqsQuery} skeleton={<SkeletonGrid count={3}/>} emptyTitle={t.helpH} emptyNote={t.helpP}>
+              {(list) => <>{list.map((f, i) => (
+                <button key={f.id} className={faqOpen === i ? 'faq open' : 'faq'} onClick={() => setFaqOpen(faqOpen === i ? -1 : i)}>
+                  <b>{f.question}</b>{faqOpen === i && <p>{f.answer}</p>}
+                </button>
+              ))}</>}
+            </Async>
             <button className="text-link" onClick={() => go('track')}>{t.trackOrder}</button>
           </div>
         </div>
@@ -809,18 +877,7 @@ export default function App() {
 
       {page === 'notifications' && <section className="section">
         <PageHero kicker={t.tape} title={t.notifH} note={t.notifP}/>
-        {/* Built from real orders. There is no notifications endpoint on the farmer API, and a list
-            of invented alerts on a page whose whole job is to tell you what happened would be the
-            worst possible place for mock data. */}
-        {!signedIn ? signInPanel : <Async query={ordersQuery} emptyTitle={t.noOrders} emptyNote={t.noOrdersP}>
-          {(list) => <div className="note-list">{list.slice(0, 12).map((o) => (
-            <button key={o.id} className="note" onClick={() => go('track', () => { setTrackHitId(o.id); setTrackNumber(o.number) })}>
-              <b>{t.statusMap[o.status] || o.status} · {o.number}</b>
-              <p>{o.itemName} · {o.total}</p>
-              <small>{formatDate(o.placedAt, locale)}</small>
-            </button>
-          ))}</div>}
-        </Async>}
+        {!signedIn ? signInPanel : <Notifications key={auth.status} locale={locale} revision={inboxRevision}/>}
       </section>}
 
       {page === 'wishlist' && <section className="section">
@@ -843,7 +900,7 @@ export default function App() {
             note={`${auth.user!.phoneE164 ?? auth.user!.email ?? ''} · ${auth.user!.organisationName}`}
           />
           <div className="product-tabs">
-            {([['orders', t.orders], ['profile', t.profile], ['services', t.bookings]] as const).map(([id, label]) => (
+            {([['orders', t.orders], ['profile', t.profile], ['services', t.bookings], ['cases', 'Returns & disputes'], ['reviews', 'My reviews']] as const).map(([id, label]) => (
               <button key={id} className={acctTab === id ? 'tab-active' : ''} onClick={() => setAcctTab(id)}>{label}</button>
             ))}
           </div>
@@ -873,6 +930,29 @@ export default function App() {
               </div>
             ))}</div>}
           </Async>}
+          {acctTab === 'cases' && <div className="two-col">
+            <form className="panel" onSubmit={(e) => { e.preventDefault(); void mutate(null, () => api.createReturn(caseForm.orderId, { orderLineId: caseForm.orderLineId, quantity: Number(caseForm.quantity), reasonCode: caseForm.reason }), () => { returnsQuery.reload(); setCaseForm((f) => ({ ...f, orderLineId: '' })) }) }}>
+              <h3>Request a return</h3><p>Choose a delivered order line. Sealed regulated items are checked by the server.</p>
+              <label>Order<select required value={caseForm.orderId} onChange={(e) => setCaseForm({ ...caseForm, orderId: e.target.value, orderLineId: '' })}><option value="">Select delivered order</option>{(ordersQuery.data ?? []).map((order) => <option key={order.id} value={order.id}>{order.number}</option>)}</select></label>
+              <label>Order line<select required disabled={caseOrderQuery.status !== 'ready'} value={caseForm.orderLineId} onChange={(e) => setCaseForm({ ...caseForm, orderLineId: e.target.value })}><option value="">{caseOrderQuery.status === 'loading' ? 'Loading order lines…' : 'Select item'}</option>{(caseOrderQuery.data?.lines ?? []).filter((line) => line.quantity > line.returnedQuantity).map((line) => <option key={line.id} value={line.id}>{line.nameSnapshot}</option>)}</select></label>
+              <label>Quantity<input required type="number" min="1" value={caseForm.quantity} onChange={(e) => setCaseForm({ ...caseForm, quantity: e.target.value })}/></label>
+              <label>Reason<select value={caseForm.reason} onChange={(e) => setCaseForm({ ...caseForm, reason: e.target.value })}>{['damaged','wrong_item','expired','not_as_described','quality_issue','late_delivery','changed_mind','regulatory'].map((x) => <option key={x}>{x.replaceAll('_',' ')}</option>)}</select></label>
+              <button className="shop-now" disabled={busyItemId !== null}>Submit return</button>
+            </form>
+            <form className="panel" onSubmit={(e) => { e.preventDefault(); void mutate(null, () => api.createDispute({ orderId: caseForm.orderId, category: caseForm.category, description: caseForm.description }, crypto.randomUUID()), () => { disputesQuery.reload(); setCaseForm((f) => ({ ...f, description: '' })) }) }}>
+              <h3>Open a dispute</h3><label>Order<select required value={caseForm.orderId} onChange={(e) => setCaseForm({ ...caseForm, orderId: e.target.value, orderLineId: '' })}><option value="">Select an order</option>{(ordersQuery.data ?? []).map((order) => <option key={order.id} value={order.id}>{order.number}</option>)}</select></label>
+              <label>Category<select value={caseForm.category} onChange={(e) => setCaseForm({ ...caseForm, category: e.target.value })}>{['not_delivered','quality','counterfeit','wrong_item','refund_refused','other'].map((x) => <option key={x}>{x.replaceAll('_',' ')}</option>)}</select></label>
+              <label>Details<textarea required value={caseForm.description} onChange={(e) => setCaseForm({ ...caseForm, description: e.target.value })}/></label><button className="shop-now" disabled={busyItemId !== null}>Submit dispute</button>
+            </form>
+            <div className="panel"><h3>Your returns</h3><Async query={returnsQuery} emptyTitle="No return requests">{(items) => <div className="order-list">{items.map((x) => <div className="order-row static" key={x.id}><button className="text-link" onClick={() => setSelectedReturnId(x.id)}><b>{x.reasonCode.replaceAll('_', ' ')}</b><span>{x.status.replaceAll('_', ' ')}</span><small>{formatDate(x.createdAt, locale)}</small></button>{x.status === 'requested' && <button className="text-link" onClick={() => void mutate(x.id, () => api.cancelReturn(x.id), returnsQuery.reload)}>Cancel</button>}{x.status !== 'cancelled' && <label className="text-link">Add evidence<input hidden type="file" accept="image/jpeg,image/png,application/pdf" onChange={(e) => { const f=e.target.files?.[0]; if(f) void mutate(x.id, () => api.uploadReturnEvidence(x.id, f), () => { returnsQuery.reload(); returnDetailQuery.reload() }) }}/></label>}</div>)}</div>}</Async>{selectedReturnId && <Async query={returnDetailQuery} emptyTitle="Return not found">{(detail) => <div className="panel"><button className="text-link" onClick={() => setSelectedReturnId(null)}>Close details</button><h4>Return timeline</h4>{detail.timeline.map((event) => <p key={`${event.status}-${event.occurredAt}`}><b>{event.status.replaceAll('_', ' ')}</b> · {formatDate(event.occurredAt, locale)} {event.reason ? `— ${event.reason}` : ''}</p>)}<p>{detail.evidence.length} evidence file(s)</p></div>}</Async>}</div>
+            <div className="panel"><h3>Your disputes</h3><Async query={disputesQuery} emptyTitle="No disputes">{(items) => <div className="order-list">{items.map((x) => <div className="order-row static" key={x.id}><button className="text-link" onClick={() => setSelectedDisputeId(x.id)}><b>{x.category.replaceAll('_', ' ')}</b><span>{x.status.replaceAll('_', ' ')}</span><small>{x.outcomeNote ?? formatDate(x.createdAt, locale)}</small></button>{x.status !== 'resolved' && x.status !== 'withdrawn' && <button className="text-link" onClick={() => void mutate(x.id, () => api.cancelDispute(x.id), disputesQuery.reload)}>Cancel</button>}{x.status !== 'resolved' && x.status !== 'withdrawn' && <label className="text-link">Add evidence<input hidden type="file" accept="image/jpeg,image/png,application/pdf" onChange={(e) => { const f=e.target.files?.[0]; if(f) void mutate(x.id, () => api.uploadDisputeEvidence(x.id, f), () => { disputesQuery.reload(); disputeDetailQuery.reload() }) }}/></label>}</div>)}</div>}</Async>{selectedDisputeId && <Async query={disputeDetailQuery} emptyTitle="Dispute not found">{(detail) => <div className="panel"><button className="text-link" onClick={() => setSelectedDisputeId(null)}>Close details</button><h4>Dispute timeline</h4>{detail.timeline.map((event) => <p key={`${event.status}-${event.occurredAt}`}><b>{event.status.replaceAll('_', ' ')}</b> · {formatDate(event.occurredAt, locale)} {event.reason ? `— ${event.reason}` : ''}</p>)}<p>{detail.evidence.length} evidence file(s)</p></div>}</Async>}</div>
+          </div>}
+          {acctTab === 'reviews' && <div className="two-col">
+            <form className="panel" onSubmit={(e) => { e.preventDefault(); const dimensions = { effectiveness: Number(reviewForm.effectiveness), valueForMoney: Number(reviewForm.valueForMoney), packaging: Number(reviewForm.packaging), authenticity: Number(reviewForm.authenticity) }; void mutate(null, () => editingReviewId ? api.updateReview(editingReviewId, { rating: Number(reviewForm.rating), body: reviewForm.body, dimensions }) : api.createReview({ orderLineId: reviewForm.orderLineId, rating: Number(reviewForm.rating), body: reviewForm.body, dimensions }), () => { myReviewsQuery.reload(); setEditingReviewId(null); setReviewForm({ orderLineId: '', rating: '5', body: '', effectiveness: '5', valueForMoney: '5', packaging: '5', authenticity: '5' }) }) }}>
+              <h3>{editingReviewId ? 'Edit review' : 'Review a purchase'}</h3><p>Reviews are verified from your delivered order line and published after moderation.</p>{!editingReviewId && <label>Order line ID<input required value={reviewForm.orderLineId} onChange={(e) => setReviewForm({ ...reviewForm, orderLineId: e.target.value })}/></label>}<label>Overall rating<select value={reviewForm.rating} onChange={(e) => setReviewForm({ ...reviewForm, rating: e.target.value })}>{[1,2,3,4,5].map((n) => <option key={n}>{n}</option>)}</select></label>{(['effectiveness','valueForMoney','packaging','authenticity'] as const).map((key) => <label key={key}>{key.replace(/([A-Z])/g, ' $1')}<select value={reviewForm[key]} onChange={(e) => setReviewForm({ ...reviewForm, [key]: e.target.value })}>{[1,2,3,4,5].map((n) => <option key={n}>{n}</option>)}</select></label>)}<label>Review<textarea maxLength={10000} value={reviewForm.body} onChange={(e) => setReviewForm({ ...reviewForm, body: e.target.value })}/></label><button className="shop-now" disabled={busyItemId !== null}>{editingReviewId ? 'Save review' : 'Submit review'}</button>
+            </form>
+            <div className="panel"><h3>Review history</h3><Async query={myReviewsQuery} emptyTitle="No reviews yet">{(items) => <div className="order-list">{items.map((x) => <div className="order-row static" key={x.id}><b>{x.rating}/5 · {x.status?.replaceAll('_', ' ')}</b><small>{x.body}</small>{x.sellerReply && <small>Seller reply: {x.sellerReply}</small>}{x.status === 'pending_moderation' && <><button className="text-link" onClick={() => { const d=x.dimensions ?? {}; setEditingReviewId(x.id); setReviewForm({ orderLineId: '', rating: String(x.rating), body: x.body ?? '', effectiveness: String(d.effectiveness ?? x.rating), valueForMoney: String(d.valueForMoney ?? x.rating), packaging: String(d.packaging ?? x.rating), authenticity: String(d.authenticity ?? x.rating) }) }}>Edit</button><button className="text-link" onClick={() => void mutate(x.id, () => api.deleteReview(x.id), myReviewsQuery.reload)}>Delete</button><label className="text-link">Add photo<input hidden type="file" accept="image/jpeg,image/png" onChange={(e) => { const f=e.target.files?.[0]; if(f) void mutate(x.id, () => api.uploadReviewMedia(x.id, f), myReviewsQuery.reload) }}/></label></>}</div>)}</div>}</Async></div>
+          </div>}
         </>}
       </section>}
 
@@ -959,12 +1039,10 @@ function SignInForm({ t, restoring, onSignIn, onRegister }: {
     try {
       if (mode === 'signIn') await onSignIn(identifier.trim(), password)
       else await onRegister(fullName.trim(), identifier.trim(), password)
-      // Cleared on success so a password never lingers in component state behind the next screen.
+
       setPassword('')
     } catch (cause) {
-      // The API's own message, verbatim. It already distinguishes a wrong password from a locked
-      // account, and rewriting every 401 as "please sign in again" is how a locked account came to
-      // look like a broken login form once before.
+
       setError(cause instanceof ApiError ? cause.detail : t.loadFailed)
     } finally {
       setBusy(false)

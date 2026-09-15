@@ -9,7 +9,7 @@ export const i18n = {
     cart: 'Cart',
     account: 'My Account',
     browse: 'Browse Categories',
-    nav: ['Home', 'Shop', 'Categories', 'Brands', 'Services', 'Offers', 'Knowledge', 'Support'] as string[],
+    nav: ['Home', 'Shop', 'Brands', 'Services', 'Offers', 'Knowledge', 'Support'] as string[],
     shopNow: 'Shop products',
     explore: 'Book a service',
     eyebrow: 'Monsoon season · 2026',
@@ -161,6 +161,7 @@ export const i18n = {
     orderPlaced: 'Order placed',
     writeMsg: 'Write a short message',
     ticketOpened: 'Ticket opened',
+    ticketLocal: 'Held on this device — support messaging is not connected yet.',
     noOrder: 'No order with that number',
     profileSaved: 'Profile saved',
     brandEyebrow: 'THE BRAND',
@@ -179,10 +180,6 @@ export const i18n = {
     steps: ['Packed', 'In transit', 'Out for delivery', 'Delivered'] as string[],
     statusMap: { Packed: 'Packed', 'In transit': 'In transit', 'Out for delivery': 'Out for delivery', Delivered: 'Delivered' } as Record<string, string>,
 
-    // ---------------------------------------------------------------- live API
-    // Added when the site moved off mock data. The API answers in one language per request, so
-    // these are the only strings the client still chooses between; everything describing a
-    // product, category or price now arrives already translated.
     noReviews: 'No reviews yet',
     stock: { inStock: 'In stock', lowStock: 'Low stock', outOfStock: 'Sold out' },
     close: 'Close',
@@ -231,7 +228,7 @@ export const i18n = {
     cart: 'কার্ট',
     account: 'আমার অ্যাকাউন্ট',
     browse: 'ক্যাটাগরি দেখুন',
-    nav: ['হোম', 'দোকান', 'ক্যাটাগরি', 'ব্র্যান্ড', 'সেবা', 'অফার', 'জ্ঞান', 'সহায়তা'] as string[],
+    nav: ['হোম', 'দোকান', 'ব্র্যান্ড', 'সেবা', 'অফার', 'জ্ঞান', 'সহায়তা'] as string[],
     shopNow: 'কেনাকাটা করুন',
     explore: 'সেবা বুক করুন',
     eyebrow: 'বর্ষা মৌসুম · ২০২৬',
@@ -383,6 +380,7 @@ export const i18n = {
     orderPlaced: 'অর্ডার সম্পন্ন',
     writeMsg: 'সংক্ষিপ্ত বার্তা লিখুন',
     ticketOpened: 'টিকেট খোলা হয়েছে',
+    ticketLocal: 'এই ডিভাইসে রাখা হয়েছে — সাপোর্ট বার্তা এখনো যুক্ত হয়নি।',
     noOrder: 'এই নম্বরে কোনো অর্ডার নেই',
     profileSaved: 'প্রোফাইল সেভ হয়েছে',
     brandEyebrow: 'ব্র্যান্ড',
@@ -401,7 +399,6 @@ export const i18n = {
     steps: ['প্যাক', 'পরিবহনে', 'ডেলিভারির পথে', 'পৌঁছেছে'] as string[],
     statusMap: { Packed: 'প্যাক', 'In transit': 'পরিবহনে', 'Out for delivery': 'ডেলিভারির পথে', Delivered: 'পৌঁছেছে' } as Record<string, string>,
 
-    // ---------------------------------------------------------------- live API
     noReviews: 'এখনো রিভিউ নেই',
     stock: { inStock: 'মজুদ আছে', lowStock: 'অল্প মজুদ', outOfStock: 'শেষ' },
     close: 'বন্ধ করুন',

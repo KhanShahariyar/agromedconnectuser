@@ -1,44 +1,22 @@
-/**
- * TypeScript mirrors of the API's response shapes.
- *
- * Only what this site actually reads is modelled. Copying the whole OpenAPI document would give
- * a false sense of coverage: a type that is never constructed from a real response is a type
- * nobody has checked against the server.
- *
- * Every field is written exactly as the API sends it, camelCase and all, so a value can be traced
- * from a network tab straight into a component without a translation step in between.
- */
 
-/**
- * Money, always. There is no `number` price anywhere in this codebase.
- *
- * `amountMinor` is an integer count of the currency's smallest unit — 54450 is ৳544.50 — which is
- * why arithmetic on it is safe where arithmetic on 544.5 is not. `display` is rendered by the
- * server because the localised form is not a formatting detail the client can guess: Bengali needs
- * Bengali digits (৳৫৪৪.৫০) and the 2,2,3 grouping that South Asian currencies use, and both depend
- * on the locale the server decided to serve, not the one the browser asked for.
- *
- * Read `display`. Compute with `amountMinor`. Never build a price string by hand.
- */
+
 export interface Money {
   amountMinor: number
   currency: string
   display: string
 }
 
-/** What the server actually served, which may not be what was requested. */
 export interface ResponseMeta {
   locale: string
   localeFallback: boolean
   correlationId: string
 }
 
-/** A product or service in a list. */
 export interface ListingSummary {
   id: string
   slug: string
   sku: string
-  /** `product` or `service`. */
+
   kind: string
   name: string
   brand?: string | null
@@ -50,9 +28,9 @@ export interface ListingSummary {
   originalPrice?: Money | null
   discountPercent?: number | null
   hasOffer: boolean
-  /** `in_stock` | `low_stock` | `out_of_stock` — a signal, deliberately not a number. */
+
   stockSignal: string
-  /** Relative (`/api/v1/media/…`); pass through {@link mediaUrl} before use. */
+
   primaryImageUrl?: string | null
 }
 
@@ -62,8 +40,9 @@ export interface ListingDetail extends Omit<ListingSummary, 'price'> {
   sellerOrganisationId: string
   sellerName: string
   status: string
-  pricing?: { unitPrice: Money; originalPrice?: Money | null; discountPercent?: number | null } | null
-  stock?: { signal: string; unitCode?: string | null; packSize?: number | null } | null
+  pricing?: { buyerPrice?: Money | null; originalPrice?: Money | null; discountPercent?: number | null } | null
+  stock?: { signal: string } | null
+  product?: { unitCode: string; packSize: number; unitPrice?: Money | null; unitPriceBasis?: string | null; activeIngredientPrice?: Money | null; activeIngredientPriceBasis?: string | null } | null
   media?: { id: string; url: string; kind?: string | null }[] | null
   attributes?: { code: string; label: string; value: string }[] | null
   usageInstructions?: { heading: string; body: string }[] | null
@@ -91,11 +70,21 @@ export interface SearchResponse {
 
 export interface Article {
   id: string
+  slug: string
   title: string
   summary: string
   category: string
   minutesRead: number
   publishedAt: string
+}
+export interface ArticleDetail extends Article { body: string }
+
+export interface Faq {
+  id: string
+  code: string
+  topic: string
+  question: string
+  answer: string
 }
 
 export interface Testimonial {
@@ -128,7 +117,7 @@ export interface Geography {
   code: string
   name: string
   parentId?: string | null
-  /** `country` | `division` | `district` | `upazila` | `union`. */
+
   level: string
 }
 
@@ -144,18 +133,12 @@ export interface CartItem {
   unitCode?: string | null
   unitPrice: Money
   lineTotal: Money
-  /** Set when the price moved since the item went in the basket. */
+
   quotedUnitPrice?: Money | null
   priceChanged: boolean
   stockSignal: string
 }
 
-/**
- * The basket, grouped by seller.
- *
- * The grouping is not presentational. One basket can span several manufacturers, each of which
- * fulfils and is paid separately, so a flat item list would misrepresent what is about to happen.
- */
 export interface Cart {
   id: string
   currency: string
@@ -200,9 +183,20 @@ export interface Review {
   isVerifiedPurchase: boolean
   helpfulCount: number
   createdAt: string
+  sellerReply?: string | null
+  repliedAt?: string | null
+  status?: string | null
+  dimensions?: { effectiveness?: number; valueForMoney?: number; packaging?: number; authenticity?: number; punctuality?: number; expertise?: number; behaviour?: number; outcome?: number } | null
+  media?: { id: string; contentType: string; byteSize: number; createdAt: string }[]
 }
 
-/** One organisation the signed-in user may act within. */
+export interface CaseEvidence { id: string; contentType: string; byteSize: number; createdAt: string }
+export interface CaseTimeline { status: string; reason?: string | null; occurredAt: string }
+export interface ReturnRequest { id: string; orderId: string; orderLineId: string; quantity: number; reasonCode: string; reasonNote?: string | null; status: string; createdAt: string; decidedAt?: string | null }
+export interface Dispute { id: string; orderId: string; category: string; description: string; disputedAmountMinor?: number | null; currencyCode?: string | null; status: string; outcome?: string | null; outcomeNote?: string | null; createdAt: string }
+export interface ReturnDetail { request: ReturnRequest; timeline: CaseTimeline[]; evidence: CaseEvidence[] }
+export interface DisputeDetail { dispute: Dispute; timeline: CaseTimeline[]; evidence: CaseEvidence[] }
+
 export interface Membership {
   organisationId: string
   name: string
@@ -230,10 +224,7 @@ export interface User {
 
 export interface AuthResponse {
   accessToken: string
-  /**
-   * Present for the mobile app's benefit and deliberately ignored here — this site's copy lives in
-   * an HttpOnly cookie that JavaScript cannot read, which is the entire point. See `session.ts`.
-   */
+
   refreshToken?: string
   tokenType: string
   expiresAt: string

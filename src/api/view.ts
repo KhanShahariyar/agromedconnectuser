@@ -1,22 +1,6 @@
 import { mediaUrl } from './client'
 import type { Article, Category, ListingDetail, ListingSummary, Money, OrderSummary, ServiceSummary } from './contracts'
 
-/**
- * View models: the shapes the components render.
- *
- * ## Why there is no `nameBn` any more
- *
- * The mock data carried both languages in every record and the UI picked one with `bn ? x.nameBn :
- * x.name`. Live data cannot work that way. Listing names, category names and price strings are
- * rendered server-side from the `i18n.translation` table against the locale negotiated for that
- * request, so a response holds *one* language — the one that was asked for.
- *
- * Switching language is therefore a refetch, not a re-render. Every query key includes the locale,
- * so flipping it invalidates and re-runs the queries, and the API returns the same rows written the
- * other way. This is more work than a client-side lookup and it is the only correct arrangement:
- * translations live in one place, are edited without shipping the front end, and never drift.
- */
-
 export interface ProductView {
   id: string
   slug: string
@@ -24,29 +8,22 @@ export interface ProductView {
   brand: string
   categoryId: string
   categoryName: string
-  /** Server-rendered and localised — `৳৫৪৪.৫০` or `৳544.50`. Render this, never a hand-built one. */
+
   price: string
-  /** Integer minor units, for arithmetic only. */
+
   priceMinor: number
   originalPrice?: string
   discountPercent?: number
   hasOffer: boolean
   rating: number
   reviews: number
-  /** `in_stock` | `low_stock` | `out_of_stock`. */
+
   stockSignal: string
   image?: string
   kind: string
   sku: string
 }
 
-/**
- * Stock is a signal, not a count.
- *
- * The API deliberately does not tell a buyer how many units are on the shelf: it is a competitor's
- * question as much as a customer's, and an exact figure goes stale between the render and the
- * click. Three buckets is what a buying decision actually needs.
- */
 export function stockLabel(signal: string, copy: { inStock: string; lowStock: string; outOfStock: string }) {
   if (signal === 'out_of_stock') return copy.outOfStock
   if (signal === 'low_stock') return copy.lowStock
@@ -69,7 +46,7 @@ export function toProduct(listing: ListingSummary): ProductView {
     rating: listing.ratingAverage ?? 0,
     reviews: listing.ratingCount,
     stockSignal: listing.stockSignal,
-    // A summary is only ever rendered in a grid, so it only ever needs the preview.
+
     image: mediaUrl(listing.primaryImageUrl, true),
     kind: listing.kind,
     sku: listing.sku,
@@ -83,10 +60,12 @@ export interface ProductDetailView extends ProductView {
   images: string[]
   attributes: { label: string; value: string }[]
   usage: { heading: string; body: string }[]
+  normalizedUnitPrice?: string
+  activeIngredientPrice?: string
 }
 
 export function toProductDetail(listing: ListingDetail): ProductDetailView {
-  const price: Money = listing.pricing?.unitPrice ?? listing.price ?? { amountMinor: 0, currency: 'BDT', display: '—' }
+  const price: Money = listing.pricing?.buyerPrice ?? listing.price ?? { amountMinor: 0, currency: 'BDT', display: '—' }
   const media = (listing.media ?? []).map((m) => mediaUrl(m.url)).filter((u): u is string => !!u)
   return {
     id: listing.id,
@@ -103,14 +82,18 @@ export function toProductDetail(listing: ListingDetail): ProductDetailView {
     rating: listing.ratingAverage ?? 0,
     reviews: listing.ratingCount,
     stockSignal: listing.stock?.signal ?? 'in_stock',
-    // The detail response has no `primaryImageUrl`; the first media row is the primary one.
+
     image: media[0],
     images: media,
     kind: listing.kind,
     sku: listing.sku,
     description: listing.description ?? listing.shortDescription ?? '',
     sellerName: listing.sellerName,
-    unit: listing.stock?.unitCode ?? '',
+    unit: listing.product?.unitCode ?? '',
+    normalizedUnitPrice: listing.product?.unitPrice && listing.product.unitPriceBasis
+      ? `${listing.product.unitPrice.display} ${listing.product.unitPriceBasis}` : undefined,
+    activeIngredientPrice: listing.product?.activeIngredientPrice && listing.product.activeIngredientPriceBasis
+      ? `${listing.product.activeIngredientPrice.display} ${listing.product.activeIngredientPriceBasis}` : undefined,
     attributes: (listing.attributes ?? []).map((a) => ({ label: a.label, value: a.value })),
     usage: listing.usageInstructions ?? [],
   }
@@ -120,19 +103,11 @@ export interface CategoryView {
   id: string
   code: string
   name: string
-  /** Two digits, matching the numbered tiles the design already uses. */
+
   index: string
   childNames: string
 }
 
-/**
- * Flattens the category tree to its top level.
- *
- * The navigation shows roots only. Children still matter — a search filtered by a root category
- * must include everything beneath it, which the API handles server-side — but listing every leaf in
- * a six-tile grid would bury the choice the user is actually making. The children are folded into a
- * subtitle so the tile still says what is inside it.
- */
 export function toCategories(tree: Category[]): CategoryView[] {
   return tree
     .slice()
@@ -174,6 +149,7 @@ export function toServices(services: ServiceSummary[]): ServiceView[] {
 
 export interface ArticleView {
   id: string
+  slug: string
   title: string
   summary: string
   kicker: string
@@ -184,6 +160,7 @@ export interface ArticleView {
 export function toArticles(articles: Article[], readSuffix: string): ArticleView[] {
   return articles.map((a) => ({
     id: a.id,
+    slug: a.slug,
     title: a.title,
     summary: a.summary,
     kicker: a.category,
@@ -198,17 +175,6 @@ export interface BrandView {
   fields: string
 }
 
-/**
- * Derives the brand list from listings rather than a brand endpoint.
- *
- * There is no brand table in the API: a brand is a column on a listing, not an entity with a
- * profile, so "which brands exist" is only answerable by looking at what is currently for sale —
- * which is also the honest answer, since a brand with nothing listed is not one a buyer can shop.
- *
- * The counts are exact for the page they were computed from. At catalogue sizes where that stops
- * being true this should move to a search facet, which the endpoint already supports; the facet
- * array simply comes back empty against the current data.
- */
 export function toBrands(listings: ListingSummary[]): BrandView[] {
   const byName = new Map<string, { count: number; categories: Set<string> }>()
   for (const listing of listings) {
@@ -251,13 +217,6 @@ export function toOrders(orders: OrderSummary[]): OrderView[] {
   }))
 }
 
-/**
- * Formats a timestamp in the active locale.
- *
- * `bn-BD` gives Bengali digits and month names, which is the whole reason this does not simply
- * slice the ISO string. Falls back to the raw value rather than throwing if the date is unparseable
- * — a malformed date should cost a tidy label, not a blank screen.
- */
 export function formatDate(iso: string, locale: string) {
   const time = Date.parse(iso)
   if (Number.isNaN(time)) return iso

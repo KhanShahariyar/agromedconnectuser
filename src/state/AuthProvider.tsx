@@ -1,17 +1,10 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
 import * as api from '../api/client'
+import { unregisterPush } from '../push'
 import { currentUser, restore, subscribe } from '../api/session'
 import type { User } from '../api/contracts'
 
-/**
- * Who is signed in, for the whole app.
- *
- * `status` distinguishes three things a boolean cannot. On first paint the answer is genuinely
- * unknown — the refresh cookie is being redeemed — and rendering "Sign in" during that moment
- * makes the header flicker from signed-out to signed-in on every reload. `restoring` holds that
- * flicker back.
- */
 type AuthStatus = 'restoring' | 'authenticated' | 'anonymous'
 
 interface AuthContextValue {
@@ -28,15 +21,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(currentUser)
   const [restoring, setRestoring] = useState(true)
 
-  // The session module is the single source of truth: a refresh triggered by any request in the
-  // app updates it, and this subscription is how that reaches React. Setting state from the login
-  // call alone would miss the token rotations that happen on their own.
   useEffect(() => subscribe(setUser), [])
 
   useEffect(() => {
     let cancelled = false
-    // The signed-out handler fires when a refresh finally fails mid-session, which is the one case
-    // where the user is ejected without asking to be.
+
     api.setSignedOutHandler(() => setUser(null))
     restore().finally(() => {
       if (!cancelled) setRestoring(false)
@@ -56,6 +45,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const signOut = useCallback(async () => {
+
+    await unregisterPush()
     await api.signOut()
   }, [])
 
