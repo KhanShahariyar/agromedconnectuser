@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import { Heart, Minus, Plus, ShoppingCart, Star, TrendingDown, TrendingUp, X } from 'lucide-react'
-import { tickerRow, type Product } from './data'
+import { Heart, Minus, Plus, ShoppingCart, Star, X } from 'lucide-react'
 import { type Copy } from './i18n'
+import type { Cart } from './api/contracts'
+import type { ProductView } from './api/view'
+import { stockLabel } from './api/view'
 
 export function CursorGlow() {
   const ref = useRef<HTMLDivElement>(null)
@@ -56,18 +58,17 @@ export function FlipDigit({ value }: { value: string }) {
   return <span className={flip ? 'flip-digit flipping' : 'flip-digit'}>{display}</span>
 }
 
-export function PriceTicker({ bn, label }: { bn: boolean; label: string }) {
-  const doubled = [...tickerRow, ...tickerRow]
+export function PriceTicker({ items, label }: { items: ProductView[]; label: string }) {
+
+  if (items.length === 0) return null
+
+  const doubled = [...items, ...items]
   return <div className="ticker">
     <div className="ticker-label"><span>{label}</span></div>
     <div className="ticker-track">
       <div className="ticker-move">
-        {doubled.map((item, i) => <span className="ticker-item" key={i}>
-          <b>{bn ? item.labelBn : item.label}</b><em>{bn ? item.priceBn : item.price}</em>
-          <i className={item.delta > 0 ? 'up' : item.delta < 0 ? 'down' : 'flat'}>
-            {item.delta > 0 ? <TrendingUp size={11}/> : item.delta < 0 ? <TrendingDown size={11}/> : '—'}
-            {item.delta !== 0 && `${Math.abs(item.delta)}%`}
-          </i>
+        {doubled.map((item, i) => <span className="ticker-item" key={`${item.id}-${i}`}>
+          <b>{item.name}</b><em>{item.price}</em>
         </span>)}
       </div>
     </div>
@@ -84,8 +85,8 @@ export function Magnetic({ children, className, onClick }: { children: ReactNode
   return <button ref={ref} className={className} onClick={onClick} onMouseMove={onMove} onMouseLeave={() => { if (ref.current) ref.current.style.transform = 'translate(0,0)' }}>{children}</button>
 }
 
-export function ProductCard({ product, bn, t, wishlisted, onWishlist, onCart, onOpen, index }: {
-  product: Product; bn: boolean; t: Copy; wishlisted: boolean; onWishlist: () => void; onCart: () => void; onOpen: () => void; index: number
+export function ProductCard({ product, t, wishlisted, onWishlist, onCart, onOpen, index }: {
+  product: ProductView; t: Copy; wishlisted: boolean; onWishlist: () => void; onCart: () => void; onOpen: () => void; index: number
 }) {
   const [loaded, setLoaded] = useState(false)
   const cardRef = useRef<HTMLElement>(null)
@@ -95,51 +96,75 @@ export function ProductCard({ product, bn, t, wishlisted, onWishlist, onCart, on
     el.style.setProperty('--ry', `${((e.clientX - rect.left) / rect.width - 0.5) * 7}deg`)
     el.style.setProperty('--rx', `${((e.clientY - rect.top) / rect.height - 0.5) * -7}deg`)
   }
+  const soldOut = product.stockSignal === 'out_of_stock'
   return <article ref={cardRef} className="product-card reveal tilt" style={{ transitionDelay: `${Math.min(index, 8) * 50}ms` }} onMouseMove={onMove} onMouseLeave={() => { const el = cardRef.current; if (el) { el.style.setProperty('--ry', '0deg'); el.style.setProperty('--rx', '0deg') } }}>
     <button className={loaded ? 'product-photo loaded' : 'product-photo'} onClick={onOpen}>
-      <img src={product.image} alt={bn ? product.nameBn : product.name} onLoad={() => setLoaded(true)}/>
-      <span style={{ background: product.color }}>{bn ? product.badgeBn : product.badge}</span>
+      {
+}
+      {product.image
+        ? <img src={product.image} alt={product.name} loading="lazy" onLoad={() => setLoaded(true)} onError={() => setLoaded(true)}/>
+        : <span className="photo-fallback" aria-hidden>{product.name.slice(0, 1)}</span>}
+      {product.discountPercent ? <span className="badge-sale">−{product.discountPercent}%</span> : null}
     </button>
     <button className={wishlisted ? 'wish active' : 'wish'} onClick={onWishlist} aria-label={t.wishlist}><Heart size={16} fill={wishlisted ? 'currentColor' : 'none'}/></button>
     <div className="product-info">
-      <small>{product.brand} · {bn ? product.unitBn : product.unit}</small>
-      <h3><button onClick={onOpen}>{bn ? product.nameBn : product.name}</button></h3>
-      <div className="rating"><Star size={12} fill="currentColor"/> <b>{product.rating}</b> <span>({product.reviews})</span></div>
-      <div className="price"><b>৳{product.price.toLocaleString()}</b>{product.old ? <del>৳{product.old.toLocaleString()}</del> : null}</div>
-      <p className="stock">{product.stock > 20 ? `● ${t.inStock}` : `● ${product.stock} ${t.left}`}</p>
-      <button className="add-cart" onClick={onCart}><ShoppingCart size={15}/> {t.addCart}</button>
+      <small>{product.brand || product.categoryName}</small>
+      <h3><button onClick={onOpen}>{product.name}</button></h3>
+      <div className="rating">
+        <Star size={12} fill="currentColor"/>
+        {
+}
+        {product.reviews > 0 ? <><b>{product.rating.toFixed(1)}</b> <span>({product.reviews})</span></> : <span>{t.noReviews}</span>}
+      </div>
+      <div className="price"><b>{product.price}</b>{product.originalPrice ? <del>{product.originalPrice}</del> : null}</div>
+      <p className={soldOut ? 'stock out' : 'stock'}>● {stockLabel(product.stockSignal, t.stock)}</p>
+      <button className="add-cart" onClick={onCart} disabled={soldOut}><ShoppingCart size={15}/> {soldOut ? t.stock.outOfStock : t.addCart}</button>
     </div>
   </article>
 }
 
-export function CartDrawer({ items, qty, bn, t, onClose, onQty, onCheckout, onShop }: {
-  items: Product[]; qty: Record<string, number>; bn: boolean; t: Copy; onClose: () => void; onQty: (p: Product, n: number) => void; onCheckout: () => void; onShop: () => void
+export function CartDrawer({ cart, busyItemId, t, onClose, onQty, onRemove, onCheckout, onShop }: {
+  cart: Cart | undefined
+
+  busyItemId: string | null
+  t: Copy
+  onClose: () => void
+  onQty: (itemId: string, quantity: number) => void
+  onRemove: (itemId: string) => void
+  onCheckout: () => void
+  onShop: () => void
 }) {
-  const total = items.reduce((s, p) => s + p.price * qty[p.id], 0)
-  const count = items.reduce((s, p) => s + qty[p.id], 0)
+  const lines = cart?.sellers.flatMap(seller => seller.items) ?? []
   return <>
     <div className="drawer-backdrop" onClick={onClose}/>
     <aside className="cart-drawer">
       <div className="drawer-head">
-        <div><small>{t.yourOrder}</small><h2>{t.cartTitle} ({count})</h2></div>
-        <button onClick={onClose}><X/></button>
+        <div><small>{t.yourOrder}</small><h2>{t.cartTitle} ({cart?.itemCount ?? 0})</h2></div>
+        <button onClick={onClose} aria-label={t.close}><X/></button>
       </div>
-      {items.length ? <>
-        <div className="cart-lines">{items.map(p => <article key={p.id}>
-          <img src={p.image} alt=""/>
-          <div>
-            <b>{bn ? p.nameBn : p.name}</b>
-            <small>৳{p.price.toLocaleString()} · {bn ? p.unitBn : p.unit}</small>
-            <div className="quantity">
-              <button onClick={() => onQty(p, -1)}><Minus size={13}/></button>
-              <span>{qty[p.id]}</span>
-              <button onClick={() => onQty(p, 1)}><Plus size={13}/></button>
+      {lines.length ? <>
+        <div className="cart-lines">{cart!.sellers.map(seller => <div key={seller.sellerOrganisationId}>
+          {
+}
+          {cart!.sellers.length > 1 && <p className="cart-seller">{seller.sellerName}</p>}
+          {seller.items.map(item => <article key={item.id} className={busyItemId === item.id ? 'is-busy' : undefined}>
+            {item.imageUrl ? <img src={item.imageUrl} alt="" loading="lazy"/> : <span className="photo-fallback small" aria-hidden>{item.name.slice(0, 1)}</span>}
+            <div>
+              <b>{item.name}</b>
+              <small>{item.unitPrice.display}{item.unitCode ? ` · ${item.unitCode}` : ''}</small>
+              {item.priceChanged && <small className="warn">{t.priceMoved}</small>}
+              <div className="quantity">
+                <button onClick={() => item.quantity <= 1 ? onRemove(item.id) : onQty(item.id, item.quantity - 1)} disabled={busyItemId === item.id} aria-label={t.less}><Minus size={13}/></button>
+                <span>{item.quantity}</span>
+                <button onClick={() => onQty(item.id, item.quantity + 1)} disabled={busyItemId === item.id} aria-label={t.more}><Plus size={13}/></button>
+              </div>
             </div>
-          </div>
-          <strong>৳{(p.price * qty[p.id]).toLocaleString()}</strong>
-        </article>)}</div>
+            <strong>{item.lineTotal.display}</strong>
+          </article>)}
+        </div>)}</div>
         <div className="cart-total">
-          <span>{t.subtotal}</span><b>৳{total.toLocaleString()}</b>
+          <span>{t.subtotal}</span><b>{cart!.subtotal.display}</b>
+          {cart!.discountTotal.amountMinor > 0 && <><span>{t.discount}</span><b>−{cart!.discountTotal.display}</b></>}
           <small>{t.delNote}</small>
           <button onClick={onCheckout}>{t.checkout}</button>
         </div>
