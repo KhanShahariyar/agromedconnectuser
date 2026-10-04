@@ -29,8 +29,6 @@ export function Async<T>({
         <WifiOff aria-hidden />
         <b>{error?.isTransient ? 'Could not load this just now' : 'Something went wrong'}</b>
         <p>{error?.detail}</p>
-        {
-}
         {error?.isTransient !== false && (
           <button type="button" onClick={query.reload}>
             <RefreshCw aria-hidden /> Try again
@@ -58,8 +56,6 @@ export function Async<T>({
 
   return (
     <>
-      {
-}
       <div className={query.refreshing ? 'is-refreshing' : undefined}>{children(query.data as T)}</div>
     </>
   )

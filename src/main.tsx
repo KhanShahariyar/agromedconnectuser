@@ -3,13 +3,9 @@ import { createRoot } from 'react-dom/client'
 import App from './App'
 import { AuthProvider } from './state/AuthProvider'
 import './styles.css'
-import './interactive.css'
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    {
-
-}
     <AuthProvider>
       <App />
     </AuthProvider>

@@ -1,14 +1,14 @@
 import { Notifications } from './Notifications'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Bell, ChevronDown, Heart, Menu, Search, ShoppingCart, UserRound, X } from 'lucide-react'
-import farmerHero from './assets/farmer-hero.png'
+import farmerHero from './assets/farmer-hero.jpg'
 import { payKeys, topicKeys, type Page } from './data'
 import { i18n } from './i18n'
 import { onPushMessage, registerPush } from './push'
-import {
-  CartDrawer, CursorGlow, FlipDigit, HeroParticles, Magnetic, PageHero,
-  PriceTicker, ProductCard, SplitHeadline, pad, useReveal,
-} from './ui'
+import { CartDrawer, PageHero, PriceTicker, ProductCard, pad } from './ui'
+import { SiteHeader, type NavItem } from './components/SiteHeader'
+import { SiteFooter } from './components/SiteFooter'
+import { CatalogHeader, CategorySheet, FilterBar, type ActiveFilter } from './components/Catalog'
+import { useMediaQuery } from './components/hooks'
 import * as api from './api/endpoints'
 import { TaxonomyBrowser, emptySelection, deepestLabel, hasSelection, type TaxonomySelection } from './TaxonomyBrowser'
 import { getLocale, setLocale } from './api/client'
@@ -51,10 +51,9 @@ export default function App() {
     }
   })
   const [lang, setLang] = useState<Lang>('en')
-  const [menu, setMenu] = useState(false)
-
   const [inboxRevision, setInboxRevision] = useState(0)
-  const [browse, setBrowse] = useState(false)
+  const [categorySheet, setCategorySheet] = useState(false)
+  const wideCatalog = useMediaQuery('(min-width: 1024px)')
   const [query, setQuery] = useState('')
   const [draft, setDraft] = useState('')
   // The three taxonomy tiers, applied progressively. Replaces the single flat
@@ -92,7 +91,6 @@ export default function App() {
   const [activeIngredientSort, setActiveIngredientSort] = useState<'none' | 'asc' | 'desc'>('none')
   const [activeIngredientPriceMax, setActiveIngredientPriceMax] = useState('')
   const [productId, setProductId] = useState<string | null>(null)
-  const [articleId, setArticleId] = useState<string | null>(null)
   const [articleSlug, setArticleSlug] = useState<string | null>(null)
   const [cartOpen, setCartOpen] = useState(false)
   const checkoutIdempotencyKey = useRef<string | null>(null)
@@ -103,9 +101,7 @@ export default function App() {
   const [toast, setToast] = useState('')
   const [scrolled, setScrolled] = useState(false)
   const [showTop, setShowTop] = useState(false)
-  const [progress, setProgress] = useState(0)
   const [bump, setBump] = useState(false)
-  const [heroReady, setHeroReady] = useState(false)
   const [faqOpen, setFaqOpen] = useState(0)
   const [trackNumber, setTrackNumber] = useState('')
   const [trackHitId, setTrackHitId] = useState<string | null>(null)
@@ -122,7 +118,6 @@ export default function App() {
   const [ticket, setTicket] = useState({ name: '', topic: 'Delivery', message: '' })
   const [tickets, setTickets] = useState<{ id: string; topic: string }[]>([])
   const [serviceForm, setServiceForm] = useState({ crop: '', geographyId: '', phone: '' })
-  const heroRef = useRef<HTMLElement>(null)
 
   const auth = useAuth()
   const t = i18n[lang]
@@ -140,11 +135,13 @@ export default function App() {
   const go = (next: Page, extra?: () => void) => {
     extra?.()
     setPage(next)
-    setMenu(false)
-    setBrowse(false)
     setCartOpen(false)
+    setCategorySheet(false)
     window.scrollTo({ top: 0, behavior: 'smooth' })
   }
+  // Stable identities: the drawer/sheet effects re-run when these change.
+  const closeCart = useCallback(() => setCartOpen(false), [])
+  const closeCategorySheet = useCallback(() => setCategorySheet(false), [])
 
   const pushUserId = auth.user?.id ?? null
   useEffect(() => {
@@ -403,20 +400,18 @@ export default function App() {
     return orders.find((o) => o.number.toLowerCase() === needle) ?? null
   }, [ordersQuery.data, trackHitId, trackNumber])
 
-  useEffect(() => { const id = window.setTimeout(() => setHeroReady(true), 60); return () => window.clearTimeout(id) }, [])
+  // Two booleans only (header shadow, back-to-top), so React bails out of
+  // re-rendering on every scroll frame once each has settled.
   useEffect(() => {
     const onScroll = () => {
       const y = window.scrollY
-      const max = document.documentElement.scrollHeight - window.innerHeight
       setScrolled(y > 8)
       setShowTop(y > 520)
-      setProgress(max > 0 ? Math.min(100, (y / max) * 100) : 0)
     }
     onScroll()
     window.addEventListener('scroll', onScroll, { passive: true })
     return () => window.removeEventListener('scroll', onScroll)
   }, [])
-  useReveal(page + query + taxonomy.divisionId + taxonomy.categoryId + taxonomy.subcategoryId + tab + brandFilter + activeIngredientSort + activeIngredientPriceMax + lang + shopQuery.status)
 
   useEffect(() => {
     if (!auth.user) return
@@ -449,13 +444,6 @@ export default function App() {
   const rMins = Math.floor((remaining % 3600000) / 60000)
   const rSecs = Math.floor((remaining % 60000) / 1000)
 
-  const onHeroMove = (e: React.MouseEvent) => {
-    const el = heroRef.current; if (!el) return
-    const rect = el.getBoundingClientRect()
-    el.style.setProperty('--hx', `${((e.clientX - rect.left) / rect.width - 0.5) * 22}px`)
-    el.style.setProperty('--hy', `${((e.clientY - rect.top) / rect.height - 0.5) * 14}px`)
-  }
-
   const navKey = (label: string) => navMap[label] || 'home'
   const activeNav = (label: string) => {
     const target = navKey(label)
@@ -472,8 +460,8 @@ export default function App() {
     onRegister={auth.register}
   />
 
-  const grid = (list: ProductView[]) => <div className="products">{list.map((p, i) => (
-    <ProductCard key={p.id} product={p} t={t} index={i} wishlisted={wishlistIds.has(p.id)}
+  const grid = (list: ProductView[]) => <div className="products">{list.map((p) => (
+    <ProductCard key={p.id} product={p} t={t} wishlisted={wishlistIds.has(p.id)}
       onWishlist={() => toggleWish(p.id)} onCart={() => addToCart(p)} onOpen={() => openProduct(p)}/>
   ))}</div>
 
@@ -485,6 +473,13 @@ export default function App() {
   const shopTitle = brandFilter || deepestLabel(taxonomy) || t.allInputs
   const shopNote = query ? `${t.resultsFor} “${query}”` : t.shopNote
 
+  // Removable chips for whatever narrows the list right now.
+  const activeFilters: ActiveFilter[] = [
+    query && { key: 'q', label: `“${query}”`, onRemove: () => { setQuery(''); setDraft('') } },
+    hasSelection(taxonomy) && { key: 'cat', label: deepestLabel(taxonomy) || t.allCats, onRemove: () => setTaxonomy(emptySelection) },
+    brandFilter && { key: 'brand', label: brandFilter, onRemove: () => setBrandFilter('') },
+  ].filter((f): f is ActiveFilter => Boolean(f))
+
   const payLabel = (code: string) => {
     const i = payKeys.indexOf(code as (typeof payKeys)[number])
     if (i >= 0) return t.pays[i]
@@ -495,144 +490,138 @@ export default function App() {
     return i >= 0 ? t.topics[i] : key
   }
 
+  const toggleLang = () => setLang(lang === 'en' ? 'bn' : 'en')
+  const navItems: NavItem[] = t.nav.map((label) => ({
+    label,
+    current: activeNav(label),
+    hot: label === 'Offers' || label === 'অফার',
+    onSelect: () => {
+      if (label === 'Categories' || label === 'ক্যাটাগরি') openShop('all')
+      else go(navKey(label))
+    },
+  }))
+
+  const taxonomyPicker = <TaxonomyBrowser
+    value={taxonomy}
+    onChange={(next) => { setTaxonomy(next); setBrandFilter('') }}
+    allLabel={t.allCats}
+    locale={locale}
+  />
+
   return <div className="shell" lang={bn ? 'bn' : 'en'}>
-    <div className="page-grain" aria-hidden="true"/>
-    <CursorGlow/>
-    <div className="scroll-progress" style={{ transform: `scaleX(${progress / 100})` }}/>
+    <a className="skip-link" href="#main">Skip to content</a>
     {toast && <div className="toast" role="status">✓ {toast}</div>}
 
-    <div className="topline">
-      <div>BD · {t.top}</div>
-      <div>
-        <button onClick={() => go('help')}>{t.help}</button>
-        <button onClick={() => go('track')}>{t.track}</button>
-        <button className="lang" onClick={() => setLang(lang === 'en' ? 'bn' : 'en')}>{lang === 'en' ? 'বাংলা' : 'EN'}</button>
-      </div>
-    </div>
-
-    <header className={scrolled ? 'scrolled' : ''}>
-      <button className="logo" onClick={() => go('home')}><i>A</i><span>AgroMED<b>CONNECT</b></span></button>
-      <button className="menu" onClick={() => setMenu(!menu)} aria-label={t.browse}>{menu ? <X/> : <Menu/>}</button>
-      <form className="header-search" onSubmit={(e) => { e.preventDefault(); setQuery(draft); go('shop') }}>
-        <Search size={18}/>
-        <input value={draft} onChange={(e) => setDraft(e.target.value)} placeholder={t.searchPh}/>
-        <button type="submit">{t.search}</button>
-      </form>
-      <div className="header-icons">
-        <button onClick={() => go('notifications')} aria-label={t.notifH}><Bell/></button>
-        <button onClick={() => go('wishlist')}><Heart/>{wishlistIds.size > 0 && <em>{wishlistIds.size}</em>}<span>{t.wishlist}</span></button>
-        <button onClick={() => (signedIn ? setCartOpen(true) : requireSignIn())}>
-          <ShoppingCart/>{cartCount > 0 && <em className={bump ? 'bump' : ''}>{cartCount}</em>}<span>{t.cart}</span>
-        </button>
-        <button className="account" onClick={() => go('account')}>
-          <UserRound/>
-          <span>{t.account}<small>{auth.status === 'restoring' ? '…' : auth.user?.fullName ?? t.signIn}</small></span>
-          <ChevronDown size={15}/>
-        </button>
-      </div>
-    </header>
-
-    <nav className={menu ? 'open' : ''}>
-      <div className="browse-wrap">
-        <button className="browse" onClick={() => setBrowse(!browse)}>{t.browse} <ChevronDown size={15}/></button>
-        {browse && <div className="browse-menu">{(categoriesQuery.data ?? []).map((c) => (
-          <button key={c.id} onClick={() => openShop(c.id)}><b>{c.index}</b>{c.name}<small>{c.childNames}</small></button>
-        ))}</div>}
-      </div>
-      {t.nav.map((label) => (
-        <button key={label} className={activeNav(label) ? 'selected' : ''} onClick={() => {
-          const next = navKey(label)
-          if (label === 'Categories' || label === 'ক্যাটাগরি') openShop('all')
-          else go(next)
-        }}>{label}{(label === 'Offers' || label === 'অফার') && <b>{t.hot}</b>}</button>
-      ))}
-      {
-
-}
-      <div className="nav-extra">
-        <button onClick={() => go('help')}>{t.help}</button>
-        <button onClick={() => go('track')}>{t.track}</button>
-        <button className="lang" onClick={() => setLang(lang === 'en' ? 'bn' : 'en')}>{lang === 'en' ? 'বাংলা' : 'EN'}</button>
-      </div>
-    </nav>
+    <SiteHeader
+      t={t}
+      scrolled={scrolled}
+      langLabel={lang === 'en' ? 'বাংলা' : 'EN'}
+      onToggleLang={toggleLang}
+      onHelp={() => go('help')}
+      onTrack={() => go('track')}
+      onHome={() => go('home')}
+      navItems={navItems}
+      categories={categoriesQuery.data ?? []}
+      onPickCategory={(id) => openShop(id)}
+      searchDraft={draft}
+      onSearchDraft={setDraft}
+      onSearch={() => { setQuery(draft); go('shop') }}
+      onNotifications={() => go('notifications')}
+      onWishlist={() => go('wishlist')}
+      wishCount={wishlistIds.size}
+      onCart={() => (signedIn ? setCartOpen(true) : requireSignIn())}
+      cartCount={cartCount}
+      bump={bump}
+      accountName={auth.status === 'restoring' ? '…' : auth.user?.fullName ?? t.signIn}
+      onAccount={() => go('account')}
+    />
     <PriceTicker items={tickerQuery.data ?? []} label={t.market}/>
 
-    <main>
+    <main id="main" tabIndex={-1}>
       {page === 'home' && <>
-        <section className="hero" ref={heroRef} onMouseMove={onHeroMove} onMouseLeave={() => { const el = heroRef.current; if (el) { el.style.setProperty('--hx', '0px'); el.style.setProperty('--hy', '0px') } }}>
-          <div className={heroReady ? 'hero-image-wrap ready' : 'hero-image-wrap'}><img className="hero-image" src={farmerHero} alt=""/></div>
-          <HeroParticles/>
-          <div className="hero-shade"/>
-          <div className={heroReady ? 'hero-copy ready' : 'hero-copy'}>
-            <span className="eyebrow">{t.eyebrow}</span>
-            <h1><SplitHeadline text={t.headline1} startDelay={0.05}/><br/><strong><SplitHeadline text={t.headline2} startDelay={0.22}/></strong></h1>
-            <p>{t.heroP}</p>
-            <div>
-              <Magnetic className="shop-now" onClick={() => openShop()}>{t.shopNow} →</Magnetic>
-              <Magnetic className="outline" onClick={() => go('services')}>{t.explore}</Magnetic>
+        <section className="hero">
+          <div className="container">
+            <div className="hero-copy">
+              <span className="eyebrow">{t.eyebrow}</span>
+              <h1>{t.headline1} <strong>{t.headline2}</strong></h1>
+              <p>{t.heroP}</p>
+              <div className="hero-actions">
+                <button type="button" className="btn btn-primary" onClick={() => openShop()}>{t.shopNow} →</button>
+                <button type="button" className="btn btn-outline" onClick={() => go('services')}>{t.explore}</button>
+              </div>
+              <p className="hero-trust">{t.heroTrust}</p>
             </div>
-            <small>{t.heroTrust}</small>
+            <div className="hero-media">
+              <img src={farmerHero} alt="" width={1672} height={941} fetchPriority="high"/>
+              <button type="button" className="hero-tag" onClick={() => openShop('all', 'sale')}><b>{t.heroSave}</b><span>{t.heroSaveNote}</span></button>
+            </div>
           </div>
-          <button className={heroReady ? 'hero-tag stamped' : 'hero-tag'} onClick={() => openShop('all', 'sale')}><b>{t.heroSave}</b><span>{t.heroSaveNote}</span></button>
         </section>
 
-        <section className="features">{t.features.map((row, i) => (
-          <button key={row[0]} className="reveal" style={{ transitionDelay: `${i * 70}ms` }} onClick={() => go(i === 2 ? 'services' : i === 3 ? 'checkout' : 'shop')}>
-            <span>{['64', 'OK', 'AG', '৳'][i]}</span><p><b>{row[0]}</b>{row[1]}</p>
-          </button>
-        ))}</section>
+        <div className="container">
+          <div className="feature-strip">{t.features.map((row, i) => (
+            <button key={row[0]} type="button" onClick={() => go(i === 2 ? 'services' : i === 3 ? 'checkout' : 'shop')}>
+              <span aria-hidden>{['64', 'OK', 'AG', '৳'][i]}</span><p><b>{row[0]}</b>{row[1]}</p>
+            </button>
+          ))}</div>
+        </div>
 
         <section className="section">
-          <div className="heading"><div><span className="eyebrow green">{t.shopNeed}</span><h2>{t.shopNeedH}</h2><p>{t.shopNeedP}</p></div><button className="text-link" onClick={() => openShop()}>{t.openShop}</button></div>
+          <div className="heading"><div><span className="eyebrow green">{t.shopNeed}</span><h2>{t.shopNeedH}</h2><p>{t.shopNeedP}</p></div><button type="button" className="text-link" onClick={() => openShop()}>{t.openShop}</button></div>
           <Async query={categoriesQuery} skeleton={<SkeletonGrid count={6}/>} emptyTitle={t.noProducts}>
-            {(list) => <div className="category-grid">{list.map((c, i) => (
-              <button key={c.id} className="category reveal" style={{ transitionDelay: `${i * 50}ms` }} onClick={() => openShop(c.id)}>
-                <i>{c.index}</i><b>{c.name}</b><small>{c.childNames}</small><span>→</span>
+            {(list) => <div className="category-grid">{list.map((c) => (
+              <button key={c.id} type="button" className="category" onClick={() => openShop(c.id)}>
+                <i>{c.index}</i><span className="category-text"><b>{c.name}</b><small>{c.childNames}</small></span><span className="category-arrow" aria-hidden>→</span>
               </button>
             ))}</div>}
           </Async>
         </section>
 
-        <section className="offer reveal">
-          <div>
-            <span>{t.flash}</span>
-            <h2>{t.flashH}</h2>
-            <p>{t.flashP}</p>
-            <button onClick={() => openShop('all', 'sale')}>{t.shopSale}</button>
-          </div>
-          <div className="offer-stat"><b>{t.upTo}<br/><strong>30%</strong><br/>{t.off}</b>
-            <small><FlipDigit value={pad(rDays)}/>d : <FlipDigit value={pad(rHours)}/>h : <FlipDigit value={pad(rMins)}/>m : <FlipDigit value={pad(rSecs)}/>s</small>
-          </div>
-        </section>
+        <div className="container">
+          <section className="offer on-dark">
+            <div>
+              <span className="eyebrow">{t.flash}</span>
+              <h2>{t.flashH}</h2>
+              <p>{t.flashP}</p>
+              <button type="button" className="btn btn-accent" onClick={() => openShop('all', 'sale')}>{t.shopSale}</button>
+            </div>
+            <div className="offer-stat">
+              <p className="offer-big">{t.upTo}<strong>30%</strong>{t.off}</p>
+              <div className="countdown" role="timer" aria-label={t.remaining}>
+                {([[rDays, 'd'], [rHours, 'h'], [rMins, 'm'], [rSecs, 's']] as const).map(([v, u]) => <span key={u}>{pad(v)}<small>{u}</small></span>)}
+              </div>
+            </div>
+          </section>
+        </div>
 
         <section className="section">
           <div className="heading"><div><span className="eyebrow green">{t.picks}</span><h2>{t.picksH}</h2><p>{t.picksP}</p></div>
-            <div className="product-tabs">
+            <div className="seg" role="group" aria-label={t.picks}>
               {[['all', t.tabAll], ['best', t.tabBest], ['new', t.tabNew]].map(([id, label]) => (
-                <button key={id} className={tab === id ? 'tab-active' : ''} onClick={() => openShop('all', id)}>{label}</button>
+                <button key={id} type="button" aria-pressed={tab === id} onClick={() => openShop('all', id)}>{label}</button>
               ))}
             </div>
           </div>
           <Async query={featuredQuery} emptyTitle={t.noProducts} emptyNote={t.noProductsP}>
             {(list) => grid(list)}
           </Async>
-          <button className="view-products" onClick={() => openShop()}>{t.viewAll}</button>
+          <button type="button" className="btn btn-outline view-products" onClick={() => openShop()}>{t.viewAll}</button>
         </section>
 
-        <section className="brand-strip">
-          <div className="brand-intro reveal">
+        <section className="section brand-strip">
+          <div className="brand-intro">
             <span className="eyebrow">{t.brandEyebrow}</span>
             <h2>{t.brandH}</h2>
             <p>{t.brandP}</p>
             <ul className="brand-stats">
-              <li><b>{t.since}</b></li>
-              <li><b>{t.hq}</b></li>
-              <li><b>{t.districts64}</b></li>
-              <li><b>{t.farmers}</b></li>
+              <li>{t.since}</li>
+              <li>{t.hq}</li>
+              <li>{t.districts64}</li>
+              <li>{t.farmers}</li>
             </ul>
           </div>
           <div className="trust-grid">{t.trust.map((row, i) => (
-            <article key={row[0]} className="reveal" style={{ transitionDelay: `${i * 60}ms` }}>
+            <article key={row[0]}>
               <i>{['01', '02', '03', '04'][i]}</i>
               <b>{row[0]}</b>
               <p>{row[1]}</p>
@@ -640,38 +629,36 @@ export default function App() {
           ))}</div>
         </section>
 
-        <section className="services">
-          <div className="service-copy reveal">
-            <span className="eyebrow">{t.fieldSvc}</span>
-            <h2>{t.svcH1}<br/><strong>{t.svcH2}</strong></h2>
-            <p>{t.svcP}</p>
-            <button onClick={() => go('services')}>{t.openSvc}</button>
-          </div>
-          <Async query={servicesQuery} skeleton={<SkeletonGrid count={4}/>} emptyTitle={t.noServices}>
-            {(list) => <div className="service-cards">{list.slice(0, 4).map((s, i) => (
-              <article key={s.id} className="reveal" style={{ transitionDelay: `${i * 70}ms` }} onClick={() => go('services')}>
-                <i>{s.index}</i><b>{s.name}</b><small>{s.price} · {s.categoryName}</small><span>→</span>
-              </article>
-            ))}</div>}
-          </Async>
-        </section>
+        <div className="services-band on-dark">
+          <section className="section">
+            <div className="service-copy">
+              <span className="eyebrow">{t.fieldSvc}</span>
+              <h2>{t.svcH1} <strong>{t.svcH2}</strong></h2>
+              <p>{t.svcP}</p>
+              <button type="button" className="btn btn-accent" onClick={() => go('services')}>{t.openSvc}</button>
+            </div>
+            <Async query={servicesQuery} skeleton={<SkeletonGrid count={4}/>} emptyTitle={t.noServices}>
+              {(list) => <div className="service-cards">{list.slice(0, 4).map((s) => (
+                <button key={s.id} type="button" className="service-card" onClick={() => go('services')}>
+                  <i>{s.index}</i><b>{s.name}</b><small>{s.price} · {s.categoryName}</small>
+                </button>
+              ))}</div>}
+            </Async>
+          </section>
+        </div>
       </>}
 
       {page === 'shop' && <section className="section shop-page">
-        <PageHero kicker={t.catalog} title={shopTitle} note={shopNote}/>
-        <div className="shop-toolbar">
-          <div className="product-tabs">
-            {[['all', t.tabAll], ['best', t.tabBest], ['new', t.tabNewFull], ['sale', t.tabSale]].map(([id, label]) => (
-              <button key={id} className={tab === id ? 'tab-active' : ''} onClick={() => setTab(id)}>{label}</button>
-            ))}
-          </div>
-          <TaxonomyBrowser
-            value={taxonomy}
-            onChange={(next) => { setTaxonomy(next); setBrandFilter('') }}
-            allLabel={t.allCats}
-            locale={locale}
-          />
-          <div className="chip-row" aria-label="Active ingredient price controls">
+        <CatalogHeader kicker={t.catalog} title={shopTitle} note={shopNote}/>
+        <FilterBar
+          t={t}
+          tabs={[['all', t.tabAll], ['best', t.tabBest], ['new', t.tabNewFull], ['sale', t.tabSale]]}
+          tab={tab}
+          onTab={setTab}
+          onOpenCategories={wideCatalog ? undefined : () => setCategorySheet(true)}
+          active={activeFilters}
+          onClearAll={clearFilters}
+          controls={<>
             <label className="sr-only" htmlFor="ingredient-price-sort">Sort by active ingredient price</label>
             <select id="ingredient-price-sort" value={activeIngredientSort} onChange={(e) => setActiveIngredientSort(e.target.value as 'none' | 'asc' | 'desc')}>
               <option value="none">Standard sorting</option>
@@ -679,22 +666,31 @@ export default function App() {
               <option value="desc">Highest price / active ingredient</option>
             </select>
             <label className="sr-only" htmlFor="ingredient-price-max">Maximum price per gram</label>
-            <input id="ingredient-price-max" inputMode="decimal" value={activeIngredientPriceMax} onChange={(e) => setActiveIngredientPriceMax(e.target.value)} placeholder="Max price / g" />
+            <input id="ingredient-price-max" inputMode="decimal" value={activeIngredientPriceMax} onChange={(e) => setActiveIngredientPriceMax(e.target.value)} placeholder="Max price / g"/>
+          </>}
+        />
+        <div className="catalog-layout">
+          {wideCatalog && <aside className="catalog-aside" aria-labelledby="catalog-aside-title">
+            <h2 id="catalog-aside-title" className="aside-title">{t.allCats}</h2>
+            {taxonomyPicker}
+          </aside>}
+          <div className="catalog-results" aria-live="polite">
+            <Async
+              query={shopQuery}
+              skeleton={<SkeletonGrid count={8}/>}
+              emptyTitle={t.noProducts}
+              emptyNote={filtersApplied
+                ? `Nothing matches ${deepestLabel(taxonomy) || t.allInputs} with the filters applied.`
+                : t.noProductsP}
+              emptyAction={filtersApplied
+                ? <button type="button" className="btn btn-primary" onClick={clearFilters}>{t.clear}</button>
+                : undefined}
+            >
+              {(list) => grid(list)}
+            </Async>
           </div>
         </div>
-        <Async
-          query={shopQuery}
-          skeleton={<SkeletonGrid count={8}/>}
-          emptyTitle={t.noProducts}
-          emptyNote={filtersApplied
-            ? `Nothing matches ${deepestLabel(taxonomy) || t.allInputs} with the filters applied.`
-            : t.noProductsP}
-          emptyAction={filtersApplied
-            ? <button className="shop-now" onClick={clearFilters}>{t.clear}</button>
-            : undefined}
-        >
-          {(list) => grid(list)}
-        </Async>
+        {!wideCatalog && <CategorySheet t={t} open={categorySheet} onClose={closeCategorySheet}>{taxonomyPicker}</CategorySheet>}
       </section>}
 
       {page === 'product' && <section className="section product-page">
@@ -718,10 +714,10 @@ export default function App() {
                 <div className="price big"><b>{product.price}</b>{product.originalPrice ? <del>{product.originalPrice}</del> : null}</div>
                 <p className="stock">{t.seller}: {product.sellerName}</p>
                 <div className="pdp-actions">
-                  <button className="shop-now" onClick={() => addToCart(product)} disabled={product.stockSignal === 'out_of_stock'}>{t.addCart}</button>
-                  <button className="outline" onClick={() => { addToCart(product); go('checkout') }} disabled={product.stockSignal === 'out_of_stock'}>{t.buyNow}</button>
-                  <button className={wishlistIds.has(product.id) ? 'ghost on' : 'ghost'} onClick={() => toggleWish(product.id)}>{wishlistIds.has(product.id) ? t.saved : t.save}</button>
-                  <button className="outline" onClick={() => toggleCompare(product.id)}>{compareIds.includes(product.id) ? 'Remove comparison' : 'Compare'}</button>
+                  <button className="btn btn-primary" onClick={() => addToCart(product)} disabled={product.stockSignal === 'out_of_stock'}>{t.addCart}</button>
+                  <button className="btn btn-outline" onClick={() => { addToCart(product); go('checkout') }} disabled={product.stockSignal === 'out_of_stock'}>{t.buyNow}</button>
+                  <button className={wishlistIds.has(product.id) ? 'btn btn-ghost on' : 'btn btn-ghost'} onClick={() => toggleWish(product.id)}>{wishlistIds.has(product.id) ? t.saved : t.save}</button>
+                  <button className="btn btn-outline" onClick={() => toggleCompare(product.id)}>{compareIds.includes(product.id) ? 'Remove comparison' : 'Compare'}</button>
                 </div>
                 {product.attributes.length > 0 && <div className="chip-row tight">
                   {product.attributes.map((a) => <span key={a.label} className="chip static">{a.label}: {a.value}</span>)}
@@ -742,19 +738,19 @@ export default function App() {
         </Async>
       </section>}
 
-      {compareIds.length > 0 && page !== 'compare' && <button className="shop-now" onClick={() => go('compare')}>Compare ({compareIds.length})</button>}
+      {compareIds.length > 0 && page !== 'compare' && <button type="button" className="btn btn-primary compare-fab" onClick={() => go('compare')}>Compare ({compareIds.length})</button>}
       {page === 'compare' && <section className="section"><PageHero kicker="Compare" title="Product comparison" note="Compare up to four products using current prices and availability."/>
         {compareIds.length < 2 ? <p>Select at least two products to compare.</p> : <Async query={comparisonQuery} emptyTitle={t.noProducts}>{result => <>
-          <button className="outline" onClick={() => { setCompareIds([]); localStorage.removeItem('agromed.compare') }}>Clear comparison</button>
-          <div className="panel" style={{ overflowX: 'auto' }}><table><thead><tr><th>Attribute</th>{result.listings.map(l => <th key={l.id}>{l.name}<button onClick={() => toggleCompare(l.id)}>Remove</button></th>)}</tr></thead><tbody>{result.rows.map(row => <tr key={row.code}><th>{row.label}</th>{row.values.map((v, i) => <td key={i}>{v ?? '—'}</td>)}</tr>)}</tbody></table></div>
+          <button className="btn btn-outline" onClick={() => { setCompareIds([]); localStorage.removeItem('agromed.compare') }}>Clear comparison</button>
+          <div className="panel compare-table"><table><thead><tr><th>Attribute</th>{result.listings.map(l => <th key={l.id}>{l.name}<button onClick={() => toggleCompare(l.id)}>Remove</button></th>)}</tr></thead><tbody>{result.rows.map(row => <tr key={row.code}><th>{row.label}</th>{row.values.map((v, i) => <td key={i}>{v ?? '—'}</td>)}</tr>)}</tbody></table></div>
         </>}</Async>}
       </section>}
 
       {page === 'brands' && <section className="section">
         <PageHero kicker={t.partners} title={t.brandsH} note={t.brandsP}/>
         <Async query={brandsQuery} skeleton={<SkeletonGrid count={6}/>} emptyTitle={t.noBrands}>
-          {(list) => <div className="brand-grid">{list.map((b, i) => (
-            <button key={b.name} className="brand-card reveal" style={{ transitionDelay: `${i * 40}ms` }} onClick={() => openShop('all', 'all', b.name)}>
+          {(list) => <div className="brand-grid">{list.map((b) => (
+            <button key={b.name} className="brand-card" onClick={() => openShop('all', 'all', b.name)}>
               <small>{b.fields}</small>
               <h3>{b.name}</h3>
               <span>{b.listings} {t.liveLots}</span>
@@ -777,11 +773,11 @@ export default function App() {
         </div>
         <Async query={servicesQuery} skeleton={<SkeletonGrid count={4}/>} emptyTitle={t.noServices}>
           {(list) => <div className="service-list">{list.map((s) => (
-            <article key={s.id} className="service-row reveal">
+            <article key={s.id} className="service-row">
               <i>{s.index}</i>
               <div><h3>{s.name}</h3><p>{s.note}</p></div>
               <b>{s.price}</b>
-              <button className="outline" onClick={() => void bookService(s.id)}>{t.book}</button>
+              <button className="btn btn-outline" onClick={() => void bookService(s.id)}>{t.book}</button>
             </article>
           ))}</div>}
         </Async>
@@ -789,9 +785,9 @@ export default function App() {
 
       {page === 'offers' && <section className="section">
         <PageHero kicker={t.windows} title={t.offersH} note={t.offersP}/>
-        <div className="offer reveal compact">
-          <div><span>{t.monsoon}</span><h2>{t.cropCareOff}</h2><p>{pad(rDays)}d {pad(rHours)}h {pad(rMins)}m {pad(rSecs)}s {t.remaining}</p>
-            <button onClick={() => openShop('all', 'sale')}>{t.openSale}</button></div>
+        <div className="offer compact on-dark">
+          <div><span className="eyebrow">{t.monsoon}</span><h2>{t.cropCareOff}</h2><p>{pad(rDays)}d {pad(rHours)}h {pad(rMins)}m {pad(rSecs)}s {t.remaining}</p>
+            <button type="button" className="btn btn-accent" onClick={() => openShop('all', 'sale')}>{t.openSale}</button></div>
         </div>
         <Async query={offersQuery} skeleton={<SkeletonGrid count={4}/>} emptyTitle={t.noProducts} emptyNote={t.noProductsP}>
           {(list) => grid(list)}
@@ -801,8 +797,8 @@ export default function App() {
       {page === 'knowledge' && <section className="section">
         <PageHero kicker={t.notes} title={t.knowH} note={t.knowP}/>
         <Async query={articlesQuery} skeleton={<SkeletonGrid count={6}/>} emptyTitle={t.noArticles}>
-          {(list) => <div className="article-grid">{list.map((a, i) => (
-            <button key={a.id} className="article-card reveal" style={{ transitionDelay: `${i * 50}ms` }} onClick={() => go('article', () => { setArticleId(a.id); setArticleSlug(a.slug) })}>
+          {(list) => <div className="article-grid">{list.map((a) => (
+            <button key={a.id} className="article-card" onClick={() => go('article', () => { setArticleSlug(a.slug) })}>
               <small>{a.kicker} · {a.read}</small>
               <h3>{a.title}</h3>
               <p>{a.summary}</p>
@@ -822,7 +818,7 @@ export default function App() {
               <p className="lead">{article.summary}</p>
               <div className="article-body">{article.body.split(/\n{2,}/).map((paragraph: string, i: number) => <p key={i}>{paragraph}</p>)}</div>
               <small className="muted">{formatDate(article.publishedAt, locale)}</small>
-              <button className="shop-now" onClick={() => go('services')}>{t.askAgro}</button>
+              <button className="btn btn-primary" onClick={() => go('services')}>{t.askAgro}</button>
             </>
           }}
         </Async>
@@ -838,13 +834,13 @@ export default function App() {
               {topicKeys.map((x, i) => <option key={x} value={x}>{t.topics[i]}</option>)}
             </select></label>
             <label>{t.message}<textarea rows={4} value={ticket.message} onChange={(e) => setTicket({ ...ticket, message: e.target.value })}/></label>
-            <button className="shop-now" type="submit">{t.sendDesk}</button>
+            <button className="btn btn-primary" type="submit">{t.sendDesk}</button>
             {tickets[0] && <p className="ok">{t.latestTicket} {tickets[0].id} · {topicLabel(tickets[0].topic)}<br/><small>{t.ticketLocal}</small></p>}
           </form>
           <div>
             <Async query={faqsQuery} skeleton={<SkeletonGrid count={3}/>} emptyTitle={t.helpH} emptyNote={t.helpP}>
               {(list) => <>{list.map((f, i) => (
-                <button key={f.id} className={faqOpen === i ? 'faq open' : 'faq'} onClick={() => setFaqOpen(faqOpen === i ? -1 : i)}>
+                <button key={f.id} type="button" className="faq" aria-expanded={faqOpen === i} onClick={() => setFaqOpen(faqOpen === i ? -1 : i)}>
                   <b>{f.question}</b>{faqOpen === i && <p>{f.answer}</p>}
                 </button>
               ))}</>}
@@ -859,7 +855,7 @@ export default function App() {
         {!signedIn ? signInPanel : <>
           <form className="panel track-form" onSubmit={(e) => { e.preventDefault(); setTrackHitId(null) }}>
             <label>{t.orderNo}<input value={trackNumber} onChange={(e) => setTrackNumber(e.target.value)} placeholder="AMC-…"/></label>
-            <button className="shop-now" type="submit">{t.trackBtn}</button>
+            <button className="btn btn-primary" type="submit">{t.trackBtn}</button>
           </form>
           {trackedOrder ? <div className="track-card">
             <small>{trackedOrder.number}</small>
@@ -886,7 +882,7 @@ export default function App() {
           query={wishlistQuery}
           skeleton={<SkeletonGrid count={4}/>}
           emptyTitle={t.nothingSaved}
-          emptyAction={<button className="shop-now" onClick={() => openShop()}>{t.browseLots}</button>}
+          emptyAction={<button className="btn btn-primary" onClick={() => openShop()}>{t.browseLots}</button>}
         >
           {(list) => grid(list)}
         </Async>}
@@ -899,13 +895,13 @@ export default function App() {
             title={auth.user!.fullName}
             note={`${auth.user!.phoneE164 ?? auth.user!.email ?? ''} · ${auth.user!.organisationName}`}
           />
-          <div className="product-tabs">
+          <div className="seg" role="group" aria-label={t.member}>
             {([['orders', t.orders], ['profile', t.profile], ['services', t.bookings], ['cases', 'Returns & disputes'], ['reviews', 'My reviews']] as const).map(([id, label]) => (
-              <button key={id} className={acctTab === id ? 'tab-active' : ''} onClick={() => setAcctTab(id)}>{label}</button>
+              <button key={id} type="button" aria-pressed={acctTab === id} onClick={() => setAcctTab(id)}>{label}</button>
             ))}
           </div>
           {acctTab === 'orders' && <Async query={ordersQuery} emptyTitle={t.noOrders} emptyNote={t.noOrdersP}
-            emptyAction={<button className="shop-now" onClick={() => openShop()}>{t.browseLots}</button>}>
+            emptyAction={<button className="btn btn-primary" onClick={() => openShop()}>{t.browseLots}</button>}>
             {(list) => <div className="order-list">{list.map((o) => (
               <button key={o.id} className="order-row" onClick={() => go('track', () => { setTrackHitId(o.id); setTrackNumber(o.number) })}>
                 <b>{o.number}</b><span>{t.statusMap[o.status] || o.status}</span>
@@ -918,10 +914,10 @@ export default function App() {
             <p><b>{t.fullName}</b><br/>{auth.user!.fullName}</p>
             <p><b>{t.phoneOrEmail}</b><br/>{auth.user!.phoneE164 ?? auth.user!.email}</p>
             <p><b>{t.account}</b><br/>{auth.user!.organisationName} · {auth.user!.roles.join(', ')}</p>
-            <button className="outline" onClick={() => void auth.signOut()}>{t.signOut}</button>
+            <button className="btn btn-outline" onClick={() => void auth.signOut()}>{t.signOut}</button>
           </div>}
           {acctTab === 'services' && <Async query={bookingsQuery} emptyTitle={t.noBook}
-            emptyAction={<button className="shop-now" onClick={() => go('services')}>{t.openSvc2}</button>}>
+            emptyAction={<button className="btn btn-primary" onClick={() => go('services')}>{t.openSvc2}</button>}>
             {(list) => <div className="order-list">{list.map((b) => (
               <div key={b.id} className="order-row static">
                 <b>{b.serviceName}</b><span>{t.statusMap[b.status] || b.status}</span>
@@ -937,19 +933,19 @@ export default function App() {
               <label>Order line<select required disabled={caseOrderQuery.status !== 'ready'} value={caseForm.orderLineId} onChange={(e) => setCaseForm({ ...caseForm, orderLineId: e.target.value })}><option value="">{caseOrderQuery.status === 'loading' ? 'Loading order lines…' : 'Select item'}</option>{(caseOrderQuery.data?.lines ?? []).filter((line) => line.quantity > line.returnedQuantity).map((line) => <option key={line.id} value={line.id}>{line.nameSnapshot}</option>)}</select></label>
               <label>Quantity<input required type="number" min="1" value={caseForm.quantity} onChange={(e) => setCaseForm({ ...caseForm, quantity: e.target.value })}/></label>
               <label>Reason<select value={caseForm.reason} onChange={(e) => setCaseForm({ ...caseForm, reason: e.target.value })}>{['damaged','wrong_item','expired','not_as_described','quality_issue','late_delivery','changed_mind','regulatory'].map((x) => <option key={x}>{x.replaceAll('_',' ')}</option>)}</select></label>
-              <button className="shop-now" disabled={busyItemId !== null}>Submit return</button>
+              <button className="btn btn-primary" disabled={busyItemId !== null}>Submit return</button>
             </form>
             <form className="panel" onSubmit={(e) => { e.preventDefault(); void mutate(null, () => api.createDispute({ orderId: caseForm.orderId, category: caseForm.category, description: caseForm.description }, crypto.randomUUID()), () => { disputesQuery.reload(); setCaseForm((f) => ({ ...f, description: '' })) }) }}>
               <h3>Open a dispute</h3><label>Order<select required value={caseForm.orderId} onChange={(e) => setCaseForm({ ...caseForm, orderId: e.target.value, orderLineId: '' })}><option value="">Select an order</option>{(ordersQuery.data ?? []).map((order) => <option key={order.id} value={order.id}>{order.number}</option>)}</select></label>
               <label>Category<select value={caseForm.category} onChange={(e) => setCaseForm({ ...caseForm, category: e.target.value })}>{['not_delivered','quality','counterfeit','wrong_item','refund_refused','other'].map((x) => <option key={x}>{x.replaceAll('_',' ')}</option>)}</select></label>
-              <label>Details<textarea required value={caseForm.description} onChange={(e) => setCaseForm({ ...caseForm, description: e.target.value })}/></label><button className="shop-now" disabled={busyItemId !== null}>Submit dispute</button>
+              <label>Details<textarea required value={caseForm.description} onChange={(e) => setCaseForm({ ...caseForm, description: e.target.value })}/></label><button className="btn btn-primary" disabled={busyItemId !== null}>Submit dispute</button>
             </form>
             <div className="panel"><h3>Your returns</h3><Async query={returnsQuery} emptyTitle="No return requests">{(items) => <div className="order-list">{items.map((x) => <div className="order-row static" key={x.id}><button className="text-link" onClick={() => setSelectedReturnId(x.id)}><b>{x.reasonCode.replaceAll('_', ' ')}</b><span>{x.status.replaceAll('_', ' ')}</span><small>{formatDate(x.createdAt, locale)}</small></button>{x.status === 'requested' && <button className="text-link" onClick={() => void mutate(x.id, () => api.cancelReturn(x.id), returnsQuery.reload)}>Cancel</button>}{x.status !== 'cancelled' && <label className="text-link">Add evidence<input hidden type="file" accept="image/jpeg,image/png,application/pdf" onChange={(e) => { const f=e.target.files?.[0]; if(f) void mutate(x.id, () => api.uploadReturnEvidence(x.id, f), () => { returnsQuery.reload(); returnDetailQuery.reload() }) }}/></label>}</div>)}</div>}</Async>{selectedReturnId && <Async query={returnDetailQuery} emptyTitle="Return not found">{(detail) => <div className="panel"><button className="text-link" onClick={() => setSelectedReturnId(null)}>Close details</button><h4>Return timeline</h4>{detail.timeline.map((event) => <p key={`${event.status}-${event.occurredAt}`}><b>{event.status.replaceAll('_', ' ')}</b> · {formatDate(event.occurredAt, locale)} {event.reason ? `— ${event.reason}` : ''}</p>)}<p>{detail.evidence.length} evidence file(s)</p></div>}</Async>}</div>
             <div className="panel"><h3>Your disputes</h3><Async query={disputesQuery} emptyTitle="No disputes">{(items) => <div className="order-list">{items.map((x) => <div className="order-row static" key={x.id}><button className="text-link" onClick={() => setSelectedDisputeId(x.id)}><b>{x.category.replaceAll('_', ' ')}</b><span>{x.status.replaceAll('_', ' ')}</span><small>{x.outcomeNote ?? formatDate(x.createdAt, locale)}</small></button>{x.status !== 'resolved' && x.status !== 'withdrawn' && <button className="text-link" onClick={() => void mutate(x.id, () => api.cancelDispute(x.id), disputesQuery.reload)}>Cancel</button>}{x.status !== 'resolved' && x.status !== 'withdrawn' && <label className="text-link">Add evidence<input hidden type="file" accept="image/jpeg,image/png,application/pdf" onChange={(e) => { const f=e.target.files?.[0]; if(f) void mutate(x.id, () => api.uploadDisputeEvidence(x.id, f), () => { disputesQuery.reload(); disputeDetailQuery.reload() }) }}/></label>}</div>)}</div>}</Async>{selectedDisputeId && <Async query={disputeDetailQuery} emptyTitle="Dispute not found">{(detail) => <div className="panel"><button className="text-link" onClick={() => setSelectedDisputeId(null)}>Close details</button><h4>Dispute timeline</h4>{detail.timeline.map((event) => <p key={`${event.status}-${event.occurredAt}`}><b>{event.status.replaceAll('_', ' ')}</b> · {formatDate(event.occurredAt, locale)} {event.reason ? `— ${event.reason}` : ''}</p>)}<p>{detail.evidence.length} evidence file(s)</p></div>}</Async>}</div>
           </div>}
           {acctTab === 'reviews' && <div className="two-col">
             <form className="panel" onSubmit={(e) => { e.preventDefault(); const dimensions = { effectiveness: Number(reviewForm.effectiveness), valueForMoney: Number(reviewForm.valueForMoney), packaging: Number(reviewForm.packaging), authenticity: Number(reviewForm.authenticity) }; void mutate(null, () => editingReviewId ? api.updateReview(editingReviewId, { rating: Number(reviewForm.rating), body: reviewForm.body, dimensions }) : api.createReview({ orderLineId: reviewForm.orderLineId, rating: Number(reviewForm.rating), body: reviewForm.body, dimensions }), () => { myReviewsQuery.reload(); setEditingReviewId(null); setReviewForm({ orderLineId: '', rating: '5', body: '', effectiveness: '5', valueForMoney: '5', packaging: '5', authenticity: '5' }) }) }}>
-              <h3>{editingReviewId ? 'Edit review' : 'Review a purchase'}</h3><p>Reviews are verified from your delivered order line and published after moderation.</p>{!editingReviewId && <label>Order line ID<input required value={reviewForm.orderLineId} onChange={(e) => setReviewForm({ ...reviewForm, orderLineId: e.target.value })}/></label>}<label>Overall rating<select value={reviewForm.rating} onChange={(e) => setReviewForm({ ...reviewForm, rating: e.target.value })}>{[1,2,3,4,5].map((n) => <option key={n}>{n}</option>)}</select></label>{(['effectiveness','valueForMoney','packaging','authenticity'] as const).map((key) => <label key={key}>{key.replace(/([A-Z])/g, ' $1')}<select value={reviewForm[key]} onChange={(e) => setReviewForm({ ...reviewForm, [key]: e.target.value })}>{[1,2,3,4,5].map((n) => <option key={n}>{n}</option>)}</select></label>)}<label>Review<textarea maxLength={10000} value={reviewForm.body} onChange={(e) => setReviewForm({ ...reviewForm, body: e.target.value })}/></label><button className="shop-now" disabled={busyItemId !== null}>{editingReviewId ? 'Save review' : 'Submit review'}</button>
+              <h3>{editingReviewId ? 'Edit review' : 'Review a purchase'}</h3><p>Reviews are verified from your delivered order line and published after moderation.</p>{!editingReviewId && <label>Order line ID<input required value={reviewForm.orderLineId} onChange={(e) => setReviewForm({ ...reviewForm, orderLineId: e.target.value })}/></label>}<label>Overall rating<select value={reviewForm.rating} onChange={(e) => setReviewForm({ ...reviewForm, rating: e.target.value })}>{[1,2,3,4,5].map((n) => <option key={n}>{n}</option>)}</select></label>{(['effectiveness','valueForMoney','packaging','authenticity'] as const).map((key) => <label key={key}>{key.replace(/([A-Z])/g, ' $1')}<select value={reviewForm[key]} onChange={(e) => setReviewForm({ ...reviewForm, [key]: e.target.value })}>{[1,2,3,4,5].map((n) => <option key={n}>{n}</option>)}</select></label>)}<label>Review<textarea maxLength={10000} value={reviewForm.body} onChange={(e) => setReviewForm({ ...reviewForm, body: e.target.value })}/></label><button className="btn btn-primary" disabled={busyItemId !== null}>{editingReviewId ? 'Save review' : 'Submit review'}</button>
             </form>
             <div className="panel"><h3>Review history</h3><Async query={myReviewsQuery} emptyTitle="No reviews yet">{(items) => <div className="order-list">{items.map((x) => <div className="order-row static" key={x.id}><b>{x.rating}/5 · {x.status?.replaceAll('_', ' ')}</b><small>{x.body}</small>{x.sellerReply && <small>Seller reply: {x.sellerReply}</small>}{x.status === 'pending_moderation' && <><button className="text-link" onClick={() => { const d=x.dimensions ?? {}; setEditingReviewId(x.id); setReviewForm({ orderLineId: '', rating: String(x.rating), body: x.body ?? '', effectiveness: String(d.effectiveness ?? x.rating), valueForMoney: String(d.valueForMoney ?? x.rating), packaging: String(d.packaging ?? x.rating), authenticity: String(d.authenticity ?? x.rating) }) }}>Edit</button><button className="text-link" onClick={() => void mutate(x.id, () => api.deleteReview(x.id), myReviewsQuery.reload)}>Delete</button><label className="text-link">Add photo<input hidden type="file" accept="image/jpeg,image/png" onChange={(e) => { const f=e.target.files?.[0]; if(f) void mutate(x.id, () => api.uploadReviewMedia(x.id, f), myReviewsQuery.reload) }}/></label></>}</div>)}</div>}</Async></div>
           </div>}
@@ -961,7 +957,7 @@ export default function App() {
         {!signedIn ? signInPanel : placedOrder ? <div className="panel success">
           <h3>{t.orders} {placedOrder.number} {t.packed}</h3>
           <p>{placedOrder.total}</p>
-          <button className="shop-now" onClick={() => { setTrackNumber(placedOrder.number); setPlacedOrder(null); go('track') }}>{t.trackVan}</button>
+          <button className="btn btn-primary" onClick={() => { setTrackNumber(placedOrder.number); setPlacedOrder(null); go('track') }}>{t.trackVan}</button>
         </div> : <div className="two-col">
           <form className="panel" onSubmit={(e) => { e.preventDefault(); void placeOrder() }}>
             <label>{t.phone}<input value={checkoutForm.phone} onChange={(e) => setCheckoutForm({ ...checkoutForm, phone: e.target.value })}/></label>
@@ -974,11 +970,11 @@ export default function App() {
             </select></label>
             <label>{t.note}<textarea rows={3} value={checkoutForm.note} onChange={(e) => setCheckoutForm({ ...checkoutForm, note: e.target.value })}/></label>
             {checkoutError && <p role="alert" className="form-error">{checkoutError}</p>}
-            <button className="shop-now" type="submit" disabled={placing || cartCount === 0}>
+            <button className="btn btn-primary" type="submit" disabled={placing || cartCount === 0}>
               {placing ? t.signInBusy : `${t.placeOrder}${cart ? ` · ${cart.total.display}` : ''}`}
             </button>
           </form>
-          <aside className="panel">
+          <aside className="panel summary">
             <h3>{t.bag}</h3>
             {cart && cart.itemCount > 0
               ? cart.sellers.flatMap((s) => s.items).map((item) => (
@@ -998,21 +994,17 @@ export default function App() {
     </main>
 
     {cartOpen && <CartDrawer cart={cart} busyItemId={busyItemId} t={t}
-      onClose={() => setCartOpen(false)} onQty={changeQty} onRemove={removeLine}
+      onClose={closeCart} onQty={changeQty} onRemove={removeLine}
       onCheckout={() => go('checkout')} onShop={() => openShop()}/>}
 
-    <footer>
-      <button className="logo light" onClick={() => go('home')}><i>A</i><span>AgroMED<b>CONNECT</b></span></button>
-      <div className="foot-links">
-        <button onClick={() => openShop()}>{t.footShop}</button>
-        <button onClick={() => go('services')}>{t.footSvc}</button>
-        <button onClick={() => go('knowledge')}>{t.footKnow}</button>
-        <button onClick={() => go('support')}>{t.footSup}</button>
-        <button onClick={() => go('track')}>{t.footTrack}</button>
-      </div>
-      <span>{t.copyright}</span>
-    </footer>
-    <button className={showTop ? 'to-top visible' : 'to-top'} onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })} aria-label="Back to top">↑</button>
+    <SiteFooter t={t} onHome={() => go('home')} links={[
+      [t.footShop, () => openShop()],
+      [t.footSvc, () => go('services')],
+      [t.footKnow, () => go('knowledge')],
+      [t.footSup, () => go('support')],
+      [t.footTrack, () => go('track')],
+    ]}/>
+    <button className={showTop ? 'to-top visible' : 'to-top'} onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })} aria-label="Back to top" type="button">↑</button>
   </div>
 
 }
@@ -1064,7 +1056,7 @@ function SignInForm({ t, restoring, onSignIn, onRegister }: {
                autoComplete={mode === 'signIn' ? 'current-password' : 'new-password'} required/>
       </label>
       {error && <p role="alert" className="form-error">{error}</p>}
-      <button className="shop-now" type="submit" disabled={busy}>
+      <button className="btn btn-primary" type="submit" disabled={busy}>
         {busy ? t.signInBusy : mode === 'signIn' ? t.signInCta : t.registerCta}
       </button>
     </form>

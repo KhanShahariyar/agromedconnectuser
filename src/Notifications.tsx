@@ -19,17 +19,17 @@ export function Notifications({ locale, revision = 0 }: { locale: string; revisi
     finally { setBusy(false) }
   }
   return <>
-    <button disabled={busy} onClick={() => remove()}>{bn ? 'সব পড়া হয়েছে' : 'Mark All as Read'}</button>
-    {error && <p role="alert">{error}</p>}
+    <div className="inbox-actions"><button type="button" className="btn btn-outline" disabled={busy} onClick={() => remove()}>{bn ? 'সব পড়া হয়েছে' : 'Mark All as Read'}</button></div>
+    {error && <p role="alert" className="form-error">{error}</p>}
     <Async query={q} emptyTitle={bn ? 'কোনো বিজ্ঞপ্তি নেই' : 'No notifications'}>
       {page => <div className="note-list">
         {!page.items.length && <p>{bn ? 'কোনো বিজ্ঞপ্তি নেই' : 'No notifications'}</p>}
         {page.items.map(n => <article key={n.id} className="note">
           <b>{n.title}</b><p>{n.body}</p><small>{n.sender} · {new Date(n.createdAt + (/Z$|[+-]\d\d:\d\d$/.test(n.createdAt) ? '' : 'Z')).toLocaleString(locale)}</small>
-          <button disabled={busy} onClick={() => remove(n.id)}>{bn ? 'পড়া হয়েছে' : 'Mark as Read'}</button>
+          <button type="button" className="btn btn-ghost" disabled={busy} onClick={() => remove(n.id)}>{bn ? 'পড়া হয়েছে' : 'Mark as Read'}</button>
         </article>)}
-        {cursor && <button onClick={() => setCursor(null)}>{bn ? 'প্রথম পৃষ্ঠা' : 'First page'}</button>}
-        {page.nextCursor && <button onClick={() => setCursor(page.nextCursor!)}>{bn ? 'পরের পৃষ্ঠা' : 'Next page'}</button>}
+        {cursor && <button type="button" className="btn btn-ghost" onClick={() => setCursor(null)}>{bn ? 'প্রথম পৃষ্ঠা' : 'First page'}</button>}
+        {page.nextCursor && <button type="button" className="btn btn-ghost" onClick={() => setCursor(page.nextCursor!)}>{bn ? 'পরের পৃষ্ঠা' : 'Next page'}</button>}
       </div>}
     </Async>
   </>
